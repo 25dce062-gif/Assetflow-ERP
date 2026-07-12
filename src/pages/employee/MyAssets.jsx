@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Package, Search } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
-import { db } from '../../services/firebase';
+import { localStorageDB } from '../../services/localStorageDB';
 import { useAuth } from '../../context/AuthContext';
 
 export default function MyAssets() {
@@ -15,10 +14,8 @@ export default function MyAssets() {
     
     const userName = currentUser.name || currentUser.displayName || 'Unknown';
     // We fetch allocations where assignee matches the user
-    const q = query(collection(db, 'allocations'), where('assignee', '==', userName), where('status', '==', 'Active'));
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setAssets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const unsubscribe = localStorageDB.subscribe('allocations', (data) => {
+      setAssets(data.filter(a => a.assignee === userName && a.status === 'Active'));
       setLoading(false);
     });
 
@@ -70,7 +67,7 @@ export default function MyAssets() {
                       <Package className="w-4 h-4 mr-2 text-primary" />
                       {item.assetName}
                     </td>
-                    <td className="px-6 py-4 text-muted-foreground">{item.createdAt?.toDate().toLocaleDateString() || 'N/A'}</td>
+                    <td className="px-6 py-4 text-muted-foreground">{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'N/A'}</td>
                     <td className="px-6 py-4 text-muted-foreground">{item.returnDate || 'Permanent'}</td>
                     <td className="px-6 py-4">
                       <span className="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border text-blue-500 bg-blue-500/10 border-blue-500/20">

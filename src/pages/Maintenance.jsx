@@ -3,9 +3,7 @@ import { useForm } from 'react-hook-form';
 import { Wrench, CheckCircle2, Clock, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
-import { collection, onSnapshot, addDoc, doc, updateDoc, query, orderBy, serverTimestamp } from 'firebase/firestore';
-import { db } from '../services/firebase';
-import { withTimeout } from '../utils/firebaseUtils';
+import { localStorageDB } from '../services/localStorageDB';
 
 export default function Maintenance() {
   const { register, handleSubmit, reset, formState: { errors } } = useForm();
@@ -15,15 +13,15 @@ export default function Maintenance() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   useEffect(() => {
-    const qTickets = query(collection(db, 'maintenance'), orderBy('createdAt', 'desc'));
-    const unsubTickets = onSnapshot(qTickets, (snapshot) => {
-      setTickets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const unsubTickets = localStorageDB.subscribe('maintenance', (data) => {
+      // Sort by createdAt desc
+      const sortedData = [...data].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      setTickets(sortedData);
       setLoading(false);
     });
 
-    const qAssets = query(collection(db, 'assets'));
-    const unsubAssets = onSnapshot(qAssets, (snapshot) => {
-      setAssets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const unsubAssets = localStorageDB.subscribe('assets', (data) => {
+      setAssets(data);
     });
 
     return () => {
@@ -37,18 +35,18 @@ export default function Maintenance() {
     try {
       const selectedAsset = assets.find(a => a.id === data.assetId);
       
-      await withTimeout(addDoc(collection(db, 'maintenance'), {
+      await localStorageDB.add('maintenance', {
         assetId: data.assetId,
         assetName: `${selectedAsset.name} (${selectedAsset.tag})`,
         issue: data.issue,
         vendor: data.vendor || 'Internal',
         cost: data.cost || 0,
         status: 'In Progress',
-        createdAt: serverTimestamp()
-      }));
+        createdAt: new Date().toISOString()
+      });
 
       // Optionally, put the asset into Maintenance status
-      await withTimeout(updateDoc(doc(db, 'assets', data.assetId), { status: 'Maintenance' }));
+      await localStorageDB.update('assets', data.assetId, { status: 'Maintenance' });
 
       toast.success('Maintenance ticket created.');
       reset();
@@ -62,8 +60,8 @@ export default function Maintenance() {
 
   const completeMaintenance = async (id, assetId) => {
     try {
-      await withTimeout(updateDoc(doc(db, 'maintenance', id), { status: 'Completed' }));
-      await withTimeout(updateDoc(doc(db, 'assets', assetId), { status: 'Available' }));
+      await localStorageDB.update('maintenance', id, { status: 'Completed' });
+      await localStorageDB.update('assets', assetId, { status: 'Available' });
       toast.success(`Maintenance completed. Asset is now Available.`);
     } catch (error) {
       toast.error(error.message || 'Failed to complete maintenance.');
@@ -186,7 +184,7 @@ export default function Maintenance() {
                         </div>
                         <p className="text-sm text-muted-foreground mt-2">{ticket.issue}</p>
                         <div className="flex items-center space-x-4 mt-3 text-xs text-muted-foreground font-medium">
-                          <span className="flex items-center"><Clock className="w-3.5 h-3.5 mr-1" /> {ticket.createdAt?.toDate().toLocaleDateString() || 'Just now'}</span>
+                          <span className="flex items-center"><Clock className="w-3.5 h-3.5 mr-1" /> {ticket.createdAt ? new Date(ticket.createdAt).toLocaleDateString() : 'Just now'}</span>
                           <span className="flex items-center"><Wrench className="w-3.5 h-3.5 mr-1" /> {ticket.vendor}</span>
                         </div>
                       </div>

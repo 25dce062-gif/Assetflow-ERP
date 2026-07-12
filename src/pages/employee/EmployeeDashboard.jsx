@@ -2,40 +2,40 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Package, Clock, ShieldCheck, Activity } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../../services/firebase';
+import { localStorageDB } from '../../services/localStorageDB';
 
 export default function EmployeeDashboard() {
   const { currentUser } = useAuth();
   const [stats, setStats] = useState({ active: 0, pending: 0, returned: 0 });
+  const [myRequests, setMyRequests] = useState([]);
 
   useEffect(() => {
-    const fetchStats = async () => {
-      if (!currentUser) return;
-      try {
-        const userName = currentUser.name || currentUser.displayName || 'Unknown';
-        // Active Assets
-        const qAlloc = query(collection(db, 'allocations'), where('assignee', '==', userName), where('status', '==', 'Active'));
-        const allocSnap = await getDocs(qAlloc);
-        
-        // Pending Requests
-        const qTrans = query(collection(db, 'transfers'), where('to', '==', userName), where('status', '==', 'Pending'));
-        const transSnap = await getDocs(qTrans);
+    if (!currentUser) return;
+    const userName = currentUser.name || currentUser.displayName || 'Unknown';
 
-        // Processed Returns
-        const qRet = query(collection(db, 'returns'), where('returnedBy', '==', userName));
-        const retSnap = await getDocs(qRet);
+    const unsubscribeRequests = localStorageDB.subscribe('requests', (data) => {
+      const userRequests = data.filter(r => r.employeeId === currentUser.uid);
+      setMyRequests(userRequests.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+      
+      const pendingCount = userRequests.filter(r => r.status === 'Pending').length;
+      setStats(prev => ({ ...prev, pending: pendingCount }));
+    });
 
-        setStats({
-          active: allocSnap.size,
-          pending: transSnap.size,
-          returned: retSnap.size
-        });
-      } catch (error) {
-        console.error("Error fetching employee stats:", error);
-      }
+    const unsubscribeAllocations = localStorageDB.subscribe('allocations', (data) => {
+      const activeCount = data.filter(a => a.assignee === userName && a.status === 'Active').length;
+      setStats(prev => ({ ...prev, active: activeCount }));
+    });
+
+    const unsubscribeReturns = localStorageDB.subscribe('returns', (data) => {
+      const returnedCount = data.filter(r => r.returnedBy === userName).length;
+      setStats(prev => ({ ...prev, returned: returnedCount }));
+    });
+
+    return () => {
+      unsubscribeRequests();
+      unsubscribeAllocations();
+      unsubscribeReturns();
     };
-    fetchStats();
   }, [currentUser]);
 
   const statCards = [
@@ -71,12 +71,56 @@ export default function EmployeeDashboard() {
         ))}
       </div>
 
-      <div className="bg-card border border-border rounded-xl p-8 shadow-soft text-center mt-6">
-        <Activity className="w-12 h-12 text-primary mx-auto mb-4 opacity-80" />
-        <h2 className="text-lg font-bold text-foreground">Need new hardware?</h2>
-        <p className="text-muted-foreground text-sm max-w-md mx-auto mt-2">
-          If you require a new laptop, phone, or accessory for your role, submit a request to the IT department.
-        </p>
+      {/* My Requests Section */}
+      <div className="bg-card border border-border rounded-xl shadow-soft overflow-hidden mt-6">
+        <div className="p-5 border-b border-border bg-muted/30">
+          <h2 className="text-base font-semibold text-foreground flex items-center">
+            <Activity className="w-4 h-4 mr-2 text-primary" />
+            My Requests
+          </h2>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left whitespace-nowrap">
+            <thead className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/50 border-b border-border">
+              <tr>
+                <th className="px-6 py-3">Type</th>
+                <th className="px-6 py-3">Details</th>
+                <th className="px-6 py-3">Submitted On</th>
+                <th className="px-6 py-3">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {myRequests.length === 0 ? (
+                <tr>
+                  <td colSpan="4" className="px-6 py-8 text-center text-muted-foreground">
+                    You have no requests.
+                  </td>
+                </tr>
+              ) : (
+                myRequests.map((req) => (
+                  <tr key={req.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="px-6 py-4 font-medium text-foreground">{req.requestType}</td>
+                    <td className="px-6 py-4 text-muted-foreground truncate max-w-[200px]">
+                      {req.category || req.assetName || 'N/A'}
+                    </td>
+                    <td className="px-6 py-4 text-muted-foreground">
+                      {req.createdAt ? new Date(req.createdAt).toLocaleDateString() : 'N/A'}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border ${
+                        req.status === 'Approved' ? 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20' :
+                        req.status === 'Rejected' ? 'text-destructive bg-destructive/10 border-destructive/20' :
+                        'text-amber-500 bg-amber-500/10 border-amber-500/20'
+                      }`}>
+                        {req.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </motion.div>
   );

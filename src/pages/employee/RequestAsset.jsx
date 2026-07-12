@@ -2,10 +2,8 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Send, Box } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../../services/firebase';
 import { useAuth } from '../../context/AuthContext';
-import { withTimeout } from '../../utils/firebaseUtils';
+import { localStorageDB } from '../../services/localStorageDB';
 import toast from 'react-hot-toast';
 
 export default function RequestAsset() {
@@ -16,14 +14,16 @@ export default function RequestAsset() {
   const onSubmit = async (data) => {
     setIsSubmitting(true);
     try {
-      await withTimeout(addDoc(collection(db, 'requests'), {
-        requestedBy: currentUser.name || currentUser.displayName || 'Unknown',
+      await localStorageDB.add('requests', {
+        employeeId: currentUser.uid,
+        employeeName: currentUser.name || currentUser.displayName || 'Unknown',
+        requestType: 'Asset',
         department: currentUser.department || 'Unknown',
         category: data.category,
         reason: data.reason,
         status: 'Pending',
-        createdAt: serverTimestamp()
-      }));
+        createdAt: new Date().toISOString()
+      });
 
       toast.success('Asset request submitted successfully!');
       reset();

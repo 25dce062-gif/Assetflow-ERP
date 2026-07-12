@@ -3,11 +3,8 @@ import { Package, UploadCloud, Save } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage } from '../services/firebase';
+import { localStorageDB } from '../services/localStorageDB';
 import { useState } from 'react';
-import { withTimeout } from '../utils/firebaseUtils';
 
 export default function AssetRegistration() {
   const { register, handleSubmit, formState: { errors }, reset } = useForm();
@@ -19,16 +16,12 @@ export default function AssetRegistration() {
     try {
       let fileUrl = null;
       
-      // Handle file upload if a file was selected
+      // Simulate file upload
       if (data.file && data.file.length > 0) {
-        const file = data.file[0];
-        const storageRef = ref(storage, `assets/${file.name}-${Date.now()}`);
-        // Upload with timeout
-        const snapshot = await withTimeout(uploadBytes(storageRef, file));
-        fileUrl = await getDownloadURL(snapshot.ref);
+        fileUrl = URL.createObjectURL(data.file[0]); // Temporary URL for local testing
       }
 
-      // Create the asset document in Firestore
+      // Create the asset document in localStorage
       const assetData = {
         name: data.name,
         category: data.category,
@@ -38,13 +31,12 @@ export default function AssetRegistration() {
         department: 'Unassigned',
         location: 'Warehouse',
         imageUrl: fileUrl,
-        createdAt: serverTimestamp(),
+        createdAt: new Date().toISOString(),
         // Generate a random tag for now (in production, use a sequential generator)
         tag: `AF-${Math.floor(1000 + Math.random() * 9000)}`
       };
 
-      // Wrap Firestore call in timeout
-      await withTimeout(addDoc(collection(db, 'assets'), assetData));
+      await localStorageDB.add('assets', assetData);
       
       toast.success('Asset registered successfully!');
       reset();

@@ -3,9 +3,7 @@ import { useForm } from 'react-hook-form';
 import { RotateCcw, Box, User, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
-import { collection, onSnapshot, doc, updateDoc, addDoc, query, where, serverTimestamp } from 'firebase/firestore';
-import { db } from '../services/firebase';
-import { withTimeout } from '../utils/firebaseUtils';
+import { localStorageDB } from '../services/localStorageDB';
 
 export default function Returns() {
   const { register, handleSubmit, reset, formState: { errors } } = useForm();
@@ -13,9 +11,8 @@ export default function Returns() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   useEffect(() => {
-    const qAssets = query(collection(db, 'assets'), where('status', '==', 'Allocated'));
-    const unsubAssets = onSnapshot(qAssets, (snapshot) => {
-      setAllocatedAssets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const unsubAssets = localStorageDB.subscribe('assets', (data) => {
+      setAllocatedAssets(data.filter(a => a.status === 'Allocated'));
     });
     return () => unsubAssets();
   }, []);
@@ -27,21 +24,21 @@ export default function Returns() {
       const newStatus = (data.condition === 'Poor' || data.condition === 'Damaged') ? 'Maintenance' : 'Available';
 
       // 1. Log the return
-      await withTimeout(addDoc(collection(db, 'returns'), {
+      await localStorageDB.add('returns', {
         assetId: data.assetId,
         assetName: `${selectedAsset.name} (${selectedAsset.tag})`,
         returnedBy: data.returnedBy,
         returnDate: data.returnDate,
         condition: data.condition,
         notes: data.notes,
-        createdAt: serverTimestamp()
-      }));
+        createdAt: new Date().toISOString()
+      });
 
       // 2. Update asset status
-      await withTimeout(updateDoc(doc(db, 'assets', data.assetId), {
+      await localStorageDB.update('assets', data.assetId, {
         status: newStatus,
         department: 'Warehouse'
-      }));
+      });
 
       // 3. Mark active allocation as returned (simplification: we skip querying allocations here for brevity, but in a real app we'd mark it inactive)
 

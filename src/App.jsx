@@ -12,6 +12,8 @@ import Returns from './pages/Returns';
 import Maintenance from './pages/Maintenance';
 import Login from './pages/Login';
 import AccessDenied from './pages/AccessDenied';
+import OrganizationSetup from './pages/OrganizationSetup';
+import EmployeeManagement from './pages/EmployeeManagement';
 import EmployeeDashboard from './pages/employee/EmployeeDashboard';
 import MyAssets from './pages/employee/MyAssets';
 import RequestAsset from './pages/employee/RequestAsset';
@@ -70,6 +72,8 @@ function App() {
             <Route path="transfers" element={<Transfers />} />
             <Route path="returns" element={<Returns />} />
             <Route path="maintenance" element={<Maintenance />} />
+            <Route path="setup" element={<OrganizationSetup />} />
+            <Route path="employees" element={<EmployeeManagement />} />
           </Route>
 
           {/* Employee Routes */}

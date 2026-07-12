@@ -3,9 +3,7 @@ import { useForm } from 'react-hook-form';
 import { ClipboardList, Search, CheckCircle2, User, Building, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
-import { collection, onSnapshot, addDoc, doc, updateDoc, query, orderBy, where, serverTimestamp } from 'firebase/firestore';
-import { db } from '../services/firebase';
-import { withTimeout } from '../utils/firebaseUtils';
+import { localStorageDB } from '../services/localStorageDB';
 
 export default function Allocations() {
   const { register, handleSubmit, reset, formState: { errors } } = useForm();
@@ -17,19 +15,15 @@ export default function Allocations() {
 
   useEffect(() => {
     // Fetch Active Allocations
-    const qAllocations = query(collection(db, 'allocations'), orderBy('createdAt', 'desc'));
-    const unsubAllocations = onSnapshot(qAllocations, (snapshot) => {
-      setAllocations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      setLoading(false);
-    }, (error) => {
-      console.error("Error fetching allocations:", error);
+    const unsubAllocations = localStorageDB.subscribe('allocations', (data) => {
+      const sortedData = [...data].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      setAllocations(sortedData);
       setLoading(false);
     });
 
     // Fetch Available Assets for the dropdown
-    const qAssets = query(collection(db, 'assets'), where('status', '==', 'Available'));
-    const unsubAssets = onSnapshot(qAssets, (snapshot) => {
-      setAvailableAssets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const unsubAssets = localStorageDB.subscribe('assets', (data) => {
+      setAvailableAssets(data.filter(a => a.status === 'Available'));
     });
 
     return () => {
@@ -43,22 +37,22 @@ export default function Allocations() {
     try {
       const selectedAsset = availableAssets.find(a => a.id === data.assetId);
       
-      // 1. Create Allocation Record with timeout
-      await withTimeout(addDoc(collection(db, 'allocations'), {
+      // 1. Create Allocation Record
+      await localStorageDB.add('allocations', {
         assetId: data.assetId,
         assetName: `${selectedAsset.name} (${selectedAsset.tag})`,
         assignee: data.assignee,
         department: data.department || 'Unassigned',
         returnDate: data.returnDate || 'Permanent',
         status: 'Active',
-        createdAt: serverTimestamp()
-      }));
+        createdAt: new Date().toISOString()
+      });
 
-      // 2. Update Asset Status to Allocated with timeout
-      await withTimeout(updateDoc(doc(db, 'assets', data.assetId), {
+      // 2. Update Asset Status to Allocated
+      await localStorageDB.update('assets', data.assetId, {
         status: 'Allocated',
         department: data.department || 'Unassigned'
-      }));
+      });
 
       toast.success('Asset successfully allocated!');
       reset();
@@ -218,7 +212,7 @@ export default function Allocations() {
                         <td className="px-5 py-4 text-foreground">{alloc.assignee}</td>
                         <td className="px-5 py-4 text-muted-foreground">{alloc.department}</td>
                         <td className="px-5 py-4 text-muted-foreground">
-                          {alloc.createdAt?.toDate().toLocaleDateString() || 'Just now'}
+                          {alloc.createdAt ? new Date(alloc.createdAt).toLocaleDateString() : 'Just now'}
                         </td>
                         <td className="px-5 py-4">
                           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider border text-emerald-500 bg-emerald-500/10 border-emerald-500/20">

@@ -3,10 +3,8 @@ import { useForm } from 'react-hook-form';
 import { ArrowRightLeft, Search, Clock, Check, X, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
-import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, query, orderBy, where, serverTimestamp } from 'firebase/firestore';
-import { db } from '../services/firebase';
+import { localStorageDB } from '../services/localStorageDB';
 import { useAuth } from '../context/AuthContext';
-import { withTimeout } from '../utils/firebaseUtils';
 
 const MOCK_PENDING = [
   { id: 1, asset: 'MacBook Pro M2 (AF-0001)', from: 'Engineering', to: 'Design', requestedBy: 'Sarah Connor', date: 'Today, 09:41 AM' },
@@ -19,20 +17,18 @@ export default function Transfers() {
   const [allocatedAssets, setAllocatedAssets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { user } = useAuth();
+  const { currentUser } = useAuth();
 
   useEffect(() => {
     // Fetch Pending Transfers
-    const qTransfers = query(collection(db, 'transfers'), where('status', '==', 'Pending'));
-    const unsubTransfers = onSnapshot(qTransfers, (snapshot) => {
-      setPendingTransfers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const unsubTransfers = localStorageDB.subscribe('transfers', (data) => {
+      setPendingTransfers(data.filter(t => t.status === 'Pending'));
       setLoading(false);
     });
 
     // Fetch Allocated Assets for the dropdown
-    const qAssets = query(collection(db, 'assets'), where('status', '==', 'Allocated'));
-    const unsubAssets = onSnapshot(qAssets, (snapshot) => {
-      setAllocatedAssets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const unsubAssets = localStorageDB.subscribe('assets', (data) => {
+      setAllocatedAssets(data.filter(a => a.status === 'Allocated'));
     });
 
     return () => {
@@ -46,16 +42,16 @@ export default function Transfers() {
     try {
       const selectedAsset = allocatedAssets.find(a => a.id === data.assetId);
       
-      await withTimeout(addDoc(collection(db, 'transfers'), {
+      await localStorageDB.add('transfers', {
         assetId: data.assetId,
         assetName: `${selectedAsset.name} (${selectedAsset.tag})`,
         from: selectedAsset.department || 'Unknown',
         to: data.newAssignee,
         reason: data.reason,
-        requestedBy: user?.displayName || 'Unknown Employee',
+        requestedBy: currentUser?.displayName || currentUser?.name || 'Unknown Employee',
         status: 'Pending',
-        createdAt: serverTimestamp()
-      }));
+        createdAt: new Date().toISOString()
+      });
 
       toast.success('Transfer request submitted for approval.');
       reset();
@@ -70,9 +66,9 @@ export default function Transfers() {
   const handleApprove = async (transferId, assetId, newLocation) => {
     try {
       // Update the transfer request
-      await withTimeout(updateDoc(doc(db, 'transfers', transferId), { status: 'Approved' }));
+      await localStorageDB.update('transfers', transferId, { status: 'Approved' });
       // Update the asset's location/department
-      await withTimeout(updateDoc(doc(db, 'assets', assetId), { department: newLocation }));
+      await localStorageDB.update('assets', assetId, { department: newLocation });
       
       toast.success(`Transfer approved.`);
     } catch (error) {
@@ -82,7 +78,7 @@ export default function Transfers() {
 
   const handleReject = async (transferId) => {
     try {
-      await withTimeout(updateDoc(doc(db, 'transfers', transferId), { status: 'Rejected' }));
+      await localStorageDB.update('transfers', transferId, { status: 'Rejected' });
       toast.success(`Transfer rejected.`);
     } catch (error) {
       toast.error(error.message || 'Failed to reject transfer.');
@@ -192,7 +188,7 @@ export default function Transfers() {
                           <ArrowRightLeft className="w-3 h-3 mx-2 text-muted-foreground" />
                           <span className="font-medium bg-muted px-2 py-1 rounded text-foreground border border-border">{req.to}</span>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-3">Requested by <span className="font-semibold text-foreground">{req.requestedBy}</span> on {req.createdAt?.toDate().toLocaleDateString()}</p>
+                        <p className="text-xs text-muted-foreground mt-3">Requested by <span className="font-semibold text-foreground">{req.requestedBy}</span> on {req.createdAt ? new Date(req.createdAt).toLocaleDateString() : 'Unknown'}</p>
                       </div>
                       <div className="flex space-x-2 shrink-0">
                         <button 

@@ -5,8 +5,7 @@ import {
   DollarSign, Activity, FileText, Image as ImageIcon, AlertCircle
 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../services/firebase';
+import { localStorageDB } from '../services/localStorageDB';
 
 export default function AssetDetails() {
   const { id } = useParams(); // 'id' corresponds to the tag based on the routing setup
@@ -16,11 +15,11 @@ export default function AssetDetails() {
   useEffect(() => {
     const fetchAsset = async () => {
       try {
-        const q = query(collection(db, 'assets'), where('tag', '==', id));
-        const querySnapshot = await getDocs(q);
+        const assets = await localStorageDB.getAll('assets');
+        const foundAsset = assets.find(a => a.tag === id);
         
-        if (!querySnapshot.empty) {
-          setAsset({ id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() });
+        if (foundAsset) {
+          setAsset(foundAsset);
         }
       } catch (error) {
         console.error("Error fetching asset details: ", error);
@@ -127,7 +126,7 @@ export default function AssetDetails() {
                 <p className="text-xs font-medium text-muted-foreground mb-1 uppercase tracking-wider">Registration Date</p>
                 <p className="text-sm font-semibold text-foreground flex items-center">
                   <Calendar className="w-4 h-4 mr-2 text-muted-foreground" />
-                  {asset.createdAt?.toDate().toLocaleDateString() || 'Unknown'}
+                  {asset.createdAt ? new Date(asset.createdAt).toLocaleDateString() : 'Unknown'}
                 </p>
               </div>
               <div>

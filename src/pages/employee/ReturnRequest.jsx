@@ -2,10 +2,8 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { RotateCcw } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { collection, addDoc, query, where, onSnapshot, serverTimestamp } from 'firebase/firestore';
-import { db } from '../../services/firebase';
 import { useAuth } from '../../context/AuthContext';
-import { withTimeout } from '../../utils/firebaseUtils';
+import { localStorageDB } from '../../services/localStorageDB';
 import toast from 'react-hot-toast';
 
 export default function ReturnRequest() {
@@ -17,9 +15,8 @@ export default function ReturnRequest() {
   useEffect(() => {
     if (!currentUser) return;
     const userName = currentUser.name || currentUser.displayName || 'Unknown';
-    const q = query(collection(db, 'allocations'), where('assignee', '==', userName), where('status', '==', 'Active'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setMyAssets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const unsubscribe = localStorageDB.subscribe('allocations', (data) => {
+      setMyAssets(data.filter(a => a.assignee === userName && a.status === 'Active'));
     });
     return () => unsubscribe();
   }, [currentUser]);
@@ -29,16 +26,18 @@ export default function ReturnRequest() {
     try {
       const selectedAsset = myAssets.find(a => a.assetId === data.assetId);
       
-      await withTimeout(addDoc(collection(db, 'returns'), {
+      await localStorageDB.add('requests', {
+        employeeId: currentUser.uid,
+        employeeName: currentUser.name || currentUser.displayName || 'Unknown',
+        requestType: 'Return',
         assetId: data.assetId,
         assetName: selectedAsset?.assetName || 'Unknown Asset',
-        returnedBy: currentUser.name || currentUser.displayName || 'Unknown',
         returnDate: new Date().toISOString().split('T')[0],
         condition: data.condition,
         notes: data.notes,
-        status: 'Pending Dropoff',
-        createdAt: serverTimestamp()
-      }));
+        status: 'Pending',
+        createdAt: new Date().toISOString()
+      });
 
       toast.success('Return initiated. Please drop off the asset at IT.');
       reset();

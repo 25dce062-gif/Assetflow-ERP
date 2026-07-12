@@ -1,7 +1,10 @@
+import { useState, useEffect } from 'react';
 import { 
   Package, CheckCircle2, ClipboardList, AlertTriangle, 
-  ArrowRightLeft, Wrench, MoreHorizontal, TrendingUp, Calendar
+  ArrowRightLeft, Wrench, MoreHorizontal, TrendingUp, Calendar, Check, X
 } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { localStorageDB } from '../services/localStorageDB';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar
@@ -47,6 +50,33 @@ const itemVariants = {
 };
 
 export default function Dashboard() {
+  const [pendingRequests, setPendingRequests] = useState([]);
+
+  useEffect(() => {
+    const unsubscribe = localStorageDB.subscribe('requests', (data) => {
+      setPendingRequests(data.filter(r => r.status === 'Pending'));
+    });
+    return unsubscribe;
+  }, []);
+
+  const handleApprove = async (id) => {
+    try {
+      await localStorageDB.update('requests', id, { status: 'Approved' });
+      toast.success('Request approved');
+    } catch (error) {
+      toast.error('Failed to approve request');
+    }
+  };
+
+  const handleReject = async (id) => {
+    try {
+      await localStorageDB.update('requests', id, { status: 'Rejected' });
+      toast.success('Request rejected');
+    } catch (error) {
+      toast.error('Failed to reject request');
+    }
+  };
+
   return (
     <motion.div 
       variants={containerVariants}
@@ -203,25 +233,39 @@ export default function Dashboard() {
         >
           <div className="p-5 border-b border-border flex justify-between items-center">
             <h3 className="text-base font-semibold text-foreground">Action Needed</h3>
-            <span className="bg-destructive/10 text-destructive text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded">3 Pending</span>
+            <span className="bg-destructive/10 text-destructive text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded">{pendingRequests.length} Pending</span>
           </div>
           <div className="p-5 space-y-3">
-            {[
-              { type: 'Transfer Approval', desc: 'Sony A7IV requested by Marketing', tag: 'High Priority' },
-              { type: 'Maintenance Review', desc: 'Projector bulb replacement (Room A)', tag: 'Medium' },
-            ].map((alert, i) => (
-              <div key={i} className="p-4 rounded-lg border border-border bg-background hover:bg-muted transition-colors cursor-pointer flex justify-between items-center group">
-                <div>
-                  <h4 className="font-semibold text-foreground text-sm">{alert.type}</h4>
-                  <p className="text-xs text-muted-foreground mt-1">{alert.desc}</p>
+            {pendingRequests.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No pending requests.</p>
+            ) : (
+              pendingRequests.map((req) => (
+                <div key={req.id} className="p-4 rounded-lg border border-border bg-background hover:bg-muted transition-colors flex justify-between items-center group">
+                  <div>
+                    <h4 className="font-semibold text-foreground text-sm">{req.requestType || 'Request'}</h4>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {req.employeeName || 'Unknown'} - {req.assetName || req.category || 'N/A'}
+                    </p>
+                  </div>
+                  <div className="flex space-x-2 shrink-0">
+                    <button 
+                      onClick={() => handleReject(req.id)}
+                      className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                      title="Reject"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                    <button 
+                      onClick={() => handleApprove(req.id)}
+                      className="p-1.5 rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition-colors shadow-sm"
+                      title="Approve"
+                    >
+                      <Check className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
-                <div className="shrink-0">
-                  <span className="px-2 py-1 rounded text-[10px] font-medium text-muted-foreground border border-border bg-background">
-                    {alert.tag}
-                  </span>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </motion.div>
 

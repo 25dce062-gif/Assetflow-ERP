@@ -6,7 +6,9 @@ import {
   RotateCcw, 
   Wrench, 
   ClipboardList,
-  Activity
+  Activity,
+  Users,
+  Settings
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -24,6 +26,8 @@ const navItems = [
   { name: 'Transfers', href: '/admin/transfers', icon: ArrowRightLeft },
   { name: 'Returns', href: '/admin/returns', icon: RotateCcw },
   { name: 'Maintenance', href: '/admin/maintenance', icon: Wrench },
+  { name: 'Employees', href: '/admin/employees', icon: Users },
+  { name: 'Setup', href: '/admin/setup', icon: Settings },
 ];
 
 export default function Sidebar({ isCollapsed }) {

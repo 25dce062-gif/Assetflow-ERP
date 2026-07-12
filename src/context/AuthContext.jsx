@@ -5,8 +5,8 @@ import {
   signOut, 
   onAuthStateChanged 
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db } from '../services/firebase';
+import { auth } from '../services/firebase';
+import { localStorageDB } from '../services/localStorageDB';
 import { toast } from 'react-hot-toast';
 
 const AuthContext = createContext();
@@ -20,37 +20,32 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   // Sign in with Google and handle Firestore user doc
-  async function signInWithGoogle() {
+  async function signInWithGoogle(requestedRole = 'Employee') {
     const provider = new GoogleAuthProvider();
     try {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
       
       try {
-        // Check if user exists in Firestore
-        const userRef = doc(db, 'users', user.uid);
-        const userSnap = await getDoc(userRef);
+        // Check if user exists in localStorageDB
+        const userSnap = await localStorageDB.getById('users', user.uid);
         
-        if (!userSnap.exists()) {
-          // Create new user document with default Employee role
-          const newUserData = {
-            uid: user.uid,
-            name: user.displayName,
-            email: user.email,
-            photoURL: user.photoURL,
-            role: 'Employee',
-            status: 'Active',
-            createdAt: new Date().toISOString()
-          };
-          await setDoc(userRef, newUserData);
-          setCurrentUser({ ...user, ...newUserData });
-        } else {
-          setCurrentUser({ ...user, ...userSnap.data() });
-        }
-      } catch (firestoreError) {
-        console.warn("Firestore unreachable during login setup: ", firestoreError);
+        const newUserData = {
+          uid: user.uid,
+          name: user.displayName,
+          email: user.email,
+          photoURL: user.photoURL,
+          role: requestedRole,
+          status: 'Active',
+          createdAt: userSnap ? userSnap.createdAt : new Date().toISOString()
+        };
+        
+        await localStorageDB.set('users', user.uid, newUserData);
+        setCurrentUser({ ...user, ...newUserData });
+      } catch (localError) {
+        console.warn("Local storage error during login setup: ", localError);
         toast.error("Database connection failed. Running in limited mode.");
-        setCurrentUser(user);
+        setCurrentUser({ ...user, role: requestedRole });
       }
       
       toast.success('Successfully logged in!');
@@ -81,17 +76,12 @@ export function AuthProvider({ children }) {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       try {
         if (user) {
-          const userRef = doc(db, "users", user.uid);
-          // 3-second timeout to prevent infinite loading if Firestore hangs
-          const userSnap = await Promise.race([
-            getDoc(userRef),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore timeout')), 3000))
-          ]);
+          const userSnap = await localStorageDB.getById('users', user.uid);
 
-          if (userSnap.exists()) {
+          if (userSnap) {
             setCurrentUser({
               ...user,
-              ...userSnap.data(),
+              ...userSnap,
             });
           } else {
             setCurrentUser(user);

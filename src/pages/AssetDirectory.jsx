@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react';
 import { Plus, Search, Filter, ChevronDown, Eye, Edit, Trash2, Tag, AlertCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { collection, onSnapshot, deleteDoc, doc, query, orderBy } from 'firebase/firestore';
-import { db } from '../services/firebase';
+import { localStorageDB } from '../services/localStorageDB';
 import toast from 'react-hot-toast';
 
 const getStatusColor = (status) => {
@@ -22,21 +21,12 @@ export default function AssetDirectory() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const q = query(collection(db, 'assets'), orderBy('createdAt', 'desc'));
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const assetData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setAssets(assetData);
+    const unsubscribe = localStorageDB.subscribe('assets', (data) => {
+      // Sort by createdAt desc
+      const sortedData = [...data].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      setAssets(sortedData);
       setLoading(false);
       setError(null);
-    }, (err) => {
-      console.error("Firestore Error: ", err);
-      setError(err.message);
-      setLoading(false);
-      toast.error('Failed to load assets. Check database connection.');
     });
 
     return () => unsubscribe();
@@ -45,7 +35,7 @@ export default function AssetDirectory() {
   const handleDelete = async (id, name) => {
     if (window.confirm(`Are you sure you want to delete ${name}?`)) {
       try {
-        await deleteDoc(doc(db, 'assets', id));
+        await localStorageDB.delete('assets', id);
         toast.success(`${name} deleted successfully.`);
       } catch (err) {
         console.error("Error deleting document: ", err);
