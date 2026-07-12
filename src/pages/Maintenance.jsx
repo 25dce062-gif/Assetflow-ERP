@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
 import { collection, onSnapshot, addDoc, doc, updateDoc, query, orderBy, serverTimestamp } from 'firebase/firestore';
 import { db } from '../services/firebase';
+import { withTimeout } from '../utils/firebaseUtils';
 
 export default function Maintenance() {
   const { register, handleSubmit, reset, formState: { errors } } = useForm();
@@ -36,7 +37,7 @@ export default function Maintenance() {
     try {
       const selectedAsset = assets.find(a => a.id === data.assetId);
       
-      await addDoc(collection(db, 'maintenance'), {
+      await withTimeout(addDoc(collection(db, 'maintenance'), {
         assetId: data.assetId,
         assetName: `${selectedAsset.name} (${selectedAsset.tag})`,
         issue: data.issue,
@@ -44,16 +45,16 @@ export default function Maintenance() {
         cost: data.cost || 0,
         status: 'In Progress',
         createdAt: serverTimestamp()
-      });
+      }));
 
       // Optionally, put the asset into Maintenance status
-      await updateDoc(doc(db, 'assets', data.assetId), { status: 'Maintenance' });
+      await withTimeout(updateDoc(doc(db, 'assets', data.assetId), { status: 'Maintenance' }));
 
       toast.success('Maintenance ticket created.');
       reset();
     } catch (error) {
       console.error("Maintenance Error:", error);
-      toast.error('Failed to create ticket.');
+      toast.error(error.message || 'Failed to create ticket.');
     } finally {
       setIsSubmitting(false);
     }
@@ -61,11 +62,11 @@ export default function Maintenance() {
 
   const completeMaintenance = async (id, assetId) => {
     try {
-      await updateDoc(doc(db, 'maintenance', id), { status: 'Completed' });
-      await updateDoc(doc(db, 'assets', assetId), { status: 'Available' });
+      await withTimeout(updateDoc(doc(db, 'maintenance', id), { status: 'Completed' }));
+      await withTimeout(updateDoc(doc(db, 'assets', assetId), { status: 'Available' }));
       toast.success(`Maintenance completed. Asset is now Available.`);
     } catch (error) {
-      toast.error('Failed to complete maintenance.');
+      toast.error(error.message || 'Failed to complete maintenance.');
     }
   };
 

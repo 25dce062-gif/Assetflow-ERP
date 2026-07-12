@@ -9,16 +9,20 @@ export default function Login() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const navigate = useNavigate();
 
-  // If already logged in, redirect to dashboard
+  // If already logged in, redirect to appropriate dashboard
   if (currentUser) {
-    return <Navigate to="/dashboard" replace />;
+    if (currentUser.role === 'Admin') {
+      return <Navigate to="/admin/dashboard" replace />;
+    } else {
+      return <Navigate to="/employee/dashboard" replace />;
+    }
   }
 
   const handleGoogleSignIn = async () => {
     try {
       setIsLoggingIn(true);
-      await signInWithGoogle();
-      navigate('/dashboard');
+      const user = await signInWithGoogle();
+      // the redirect will happen automatically because currentUser will change and the `if (currentUser)` block will trigger.
     } catch (error) {
       // Error is handled in context via toast
       setIsLoggingIn(false);

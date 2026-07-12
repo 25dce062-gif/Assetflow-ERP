@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, query, orderBy, where, serverTimestamp } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
+import { withTimeout } from '../utils/firebaseUtils';
 
 const MOCK_PENDING = [
   { id: 1, asset: 'MacBook Pro M2 (AF-0001)', from: 'Engineering', to: 'Design', requestedBy: 'Sarah Connor', date: 'Today, 09:41 AM' },
@@ -45,7 +46,7 @@ export default function Transfers() {
     try {
       const selectedAsset = allocatedAssets.find(a => a.id === data.assetId);
       
-      await addDoc(collection(db, 'transfers'), {
+      await withTimeout(addDoc(collection(db, 'transfers'), {
         assetId: data.assetId,
         assetName: `${selectedAsset.name} (${selectedAsset.tag})`,
         from: selectedAsset.department || 'Unknown',
@@ -54,7 +55,7 @@ export default function Transfers() {
         requestedBy: user?.displayName || 'Unknown Employee',
         status: 'Pending',
         createdAt: serverTimestamp()
-      });
+      }));
 
       toast.success('Transfer request submitted for approval.');
       reset();
@@ -69,22 +70,22 @@ export default function Transfers() {
   const handleApprove = async (transferId, assetId, newLocation) => {
     try {
       // Update the transfer request
-      await updateDoc(doc(db, 'transfers', transferId), { status: 'Approved' });
+      await withTimeout(updateDoc(doc(db, 'transfers', transferId), { status: 'Approved' }));
       // Update the asset's location/department
-      await updateDoc(doc(db, 'assets', assetId), { department: newLocation });
+      await withTimeout(updateDoc(doc(db, 'assets', assetId), { department: newLocation }));
       
       toast.success(`Transfer approved.`);
     } catch (error) {
-      toast.error('Failed to approve transfer.');
+      toast.error(error.message || 'Failed to approve transfer.');
     }
   };
 
   const handleReject = async (transferId) => {
     try {
-      await updateDoc(doc(db, 'transfers', transferId), { status: 'Rejected' });
+      await withTimeout(updateDoc(doc(db, 'transfers', transferId), { status: 'Rejected' }));
       toast.success(`Transfer rejected.`);
     } catch (error) {
-      toast.error('Failed to reject transfer.');
+      toast.error(error.message || 'Failed to reject transfer.');
     }
   };
 

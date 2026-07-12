@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
 import { collection, onSnapshot, addDoc, doc, updateDoc, query, orderBy, where, serverTimestamp } from 'firebase/firestore';
 import { db } from '../services/firebase';
+import { withTimeout } from '../utils/firebaseUtils';
 
 export default function Allocations() {
   const { register, handleSubmit, reset, formState: { errors } } = useForm();
@@ -42,8 +43,8 @@ export default function Allocations() {
     try {
       const selectedAsset = availableAssets.find(a => a.id === data.assetId);
       
-      // 1. Create Allocation Record
-      await addDoc(collection(db, 'allocations'), {
+      // 1. Create Allocation Record with timeout
+      await withTimeout(addDoc(collection(db, 'allocations'), {
         assetId: data.assetId,
         assetName: `${selectedAsset.name} (${selectedAsset.tag})`,
         assignee: data.assignee,
@@ -51,13 +52,13 @@ export default function Allocations() {
         returnDate: data.returnDate || 'Permanent',
         status: 'Active',
         createdAt: serverTimestamp()
-      });
+      }));
 
-      // 2. Update Asset Status to Allocated
-      await updateDoc(doc(db, 'assets', data.assetId), {
+      // 2. Update Asset Status to Allocated with timeout
+      await withTimeout(updateDoc(doc(db, 'assets', data.assetId), {
         status: 'Allocated',
         department: data.department || 'Unassigned'
-      });
+      }));
 
       toast.success('Asset successfully allocated!');
       reset();

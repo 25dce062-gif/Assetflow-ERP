@@ -47,7 +47,7 @@ export default function AssetDetails() {
         <AlertCircle className="w-12 h-12 text-destructive mb-4" />
         <h2 className="text-xl font-bold text-foreground">Asset Not Found</h2>
         <p className="text-muted-foreground mt-2 mb-6">The asset with tag {id} does not exist.</p>
-        <Link to="/assets" className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium">
+        <Link to="/admin/assets" className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium">
           Return to Directory
         </Link>
       </div>
@@ -62,7 +62,7 @@ export default function AssetDetails() {
     >
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center space-x-4">
-          <Link to="/assets" className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors border border-border bg-background shadow-sm">
+          <Link to="/admin/assets" className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors border border-border bg-background shadow-sm">
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div>

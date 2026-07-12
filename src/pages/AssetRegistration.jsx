@@ -4,8 +4,10 @@ import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../services/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '../services/firebase';
 import { useState } from 'react';
+import { withTimeout } from '../utils/firebaseUtils';
 
 export default function AssetRegistration() {
   const { register, handleSubmit, formState: { errors }, reset } = useForm();
@@ -15,6 +17,17 @@ export default function AssetRegistration() {
   const onSubmit = async (data) => {
     setIsSubmitting(true);
     try {
+      let fileUrl = null;
+      
+      // Handle file upload if a file was selected
+      if (data.file && data.file.length > 0) {
+        const file = data.file[0];
+        const storageRef = ref(storage, `assets/${file.name}-${Date.now()}`);
+        // Upload with timeout
+        const snapshot = await withTimeout(uploadBytes(storageRef, file));
+        fileUrl = await getDownloadURL(snapshot.ref);
+      }
+
       // Create the asset document in Firestore
       const assetData = {
         name: data.name,
@@ -24,16 +37,18 @@ export default function AssetRegistration() {
         status: 'Available', // Default status for new assets
         department: 'Unassigned',
         location: 'Warehouse',
+        imageUrl: fileUrl,
         createdAt: serverTimestamp(),
         // Generate a random tag for now (in production, use a sequential generator)
         tag: `AF-${Math.floor(1000 + Math.random() * 9000)}`
       };
 
-      await addDoc(collection(db, 'assets'), assetData);
+      // Wrap Firestore call in timeout
+      await withTimeout(addDoc(collection(db, 'assets'), assetData));
       
       toast.success('Asset registered successfully!');
       reset();
-      navigate('/assets');
+      navigate('/admin/assets');
     } catch (error) {
       console.error("Error adding document: ", error);
       toast.error(error.message || 'Failed to register asset. Check database connection.');
@@ -135,7 +150,7 @@ export default function AssetRegistration() {
                 <div className="text-sm text-foreground">
                   <label className="relative cursor-pointer rounded-md font-medium text-primary hover:underline focus-within:outline-none">
                     <span>Upload a file</span>
-                    <input type="file" className="sr-only" multiple />
+                    <input type="file" {...register("file")} className="sr-only" />
                   </label>
                   <span className="pl-1 text-muted-foreground">or drag and drop</span>
                 </div>
@@ -148,7 +163,7 @@ export default function AssetRegistration() {
         <div className="flex justify-end space-x-3 pt-2">
           <button
             type="button"
-            onClick={() => navigate('/assets')}
+            onClick={() => navigate('/admin/assets')}
             className="px-4 py-2 border border-input rounded-lg bg-background text-sm font-medium text-foreground hover:bg-muted transition-colors shadow-sm"
           >
             Cancel

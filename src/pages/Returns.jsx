@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
 import { collection, onSnapshot, doc, updateDoc, addDoc, query, where, serverTimestamp } from 'firebase/firestore';
 import { db } from '../services/firebase';
+import { withTimeout } from '../utils/firebaseUtils';
 
 export default function Returns() {
   const { register, handleSubmit, reset, formState: { errors } } = useForm();
@@ -26,7 +27,7 @@ export default function Returns() {
       const newStatus = (data.condition === 'Poor' || data.condition === 'Damaged') ? 'Maintenance' : 'Available';
 
       // 1. Log the return
-      await addDoc(collection(db, 'returns'), {
+      await withTimeout(addDoc(collection(db, 'returns'), {
         assetId: data.assetId,
         assetName: `${selectedAsset.name} (${selectedAsset.tag})`,
         returnedBy: data.returnedBy,
@@ -34,13 +35,13 @@ export default function Returns() {
         condition: data.condition,
         notes: data.notes,
         createdAt: serverTimestamp()
-      });
+      }));
 
       // 2. Update asset status
-      await updateDoc(doc(db, 'assets', data.assetId), {
+      await withTimeout(updateDoc(doc(db, 'assets', data.assetId), {
         status: newStatus,
         department: 'Warehouse'
-      });
+      }));
 
       // 3. Mark active allocation as returned (simplification: we skip querying allocations here for brevity, but in a real app we'd mark it inactive)
 

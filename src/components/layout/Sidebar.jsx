@@ -18,12 +18,12 @@ function cn(...inputs) {
 }
 
 const navItems = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Directory', href: '/assets', icon: Package },
-  { name: 'Allocations', href: '/allocations', icon: ClipboardList },
-  { name: 'Transfers', href: '/transfers', icon: ArrowRightLeft },
-  { name: 'Returns', href: '/returns', icon: RotateCcw },
-  { name: 'Maintenance', href: '/maintenance', icon: Wrench },
+  { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
+  { name: 'Directory', href: '/admin/assets', icon: Package },
+  { name: 'Allocations', href: '/admin/allocations', icon: ClipboardList },
+  { name: 'Transfers', href: '/admin/transfers', icon: ArrowRightLeft },
+  { name: 'Returns', href: '/admin/returns', icon: RotateCcw },
+  { name: 'Maintenance', href: '/admin/maintenance', icon: Wrench },
 ];
 
 export default function Sidebar({ isCollapsed }) {
@@ -97,7 +97,7 @@ export default function Sidebar({ isCollapsed }) {
           {!isCollapsed && (
             <div className="ml-3 overflow-hidden">
               <p className="text-sm font-medium text-foreground truncate">{currentUser?.displayName || 'User'}</p>
-              <p className="text-xs text-muted-foreground truncate">Employee</p>
+              <p className="text-xs text-primary font-bold uppercase tracking-wider truncate">Admin</p>
             </div>
           )}
         </div>

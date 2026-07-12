@@ -73,7 +73,7 @@ export default function AssetDirectory() {
           <p className="text-muted-foreground mt-1 text-sm font-medium">Search and manage all organizational assets.</p>
         </div>
         <Link 
-          to="/assets/new"
+          to="/admin/assets/new"
           className="inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
         >
           <Plus className="mr-2 h-4 w-4" />
@@ -164,7 +164,7 @@ export default function AssetDirectory() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Link to={`/assets/${asset.tag}`} className="p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-md transition-colors" title="View Details">
+                        <Link to={`/admin/assets/${asset.tag}`} className="p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-md transition-colors" title="View Details">
                           <Eye className="w-4 h-4" />
                         </Link>
                         <button className="p-1.5 text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10 rounded-md transition-colors" title="Edit">

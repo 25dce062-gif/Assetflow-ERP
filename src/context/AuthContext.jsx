@@ -26,21 +26,31 @@ export function AuthProvider({ children }) {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
       
-      // Check if user exists in Firestore
-      const userRef = doc(db, 'users', user.uid);
-      const userSnap = await getDoc(userRef);
-      
-      if (!userSnap.exists()) {
-        // Create new user document with default Employee role
-        await setDoc(userRef, {
-          uid: user.uid,
-          name: user.displayName,
-          email: user.email,
-          photoURL: user.photoURL,
-          role: 'Employee',
-          status: 'Active',
-          createdAt: new Date().toISOString()
-        });
+      try {
+        // Check if user exists in Firestore
+        const userRef = doc(db, 'users', user.uid);
+        const userSnap = await getDoc(userRef);
+        
+        if (!userSnap.exists()) {
+          // Create new user document with default Employee role
+          const newUserData = {
+            uid: user.uid,
+            name: user.displayName,
+            email: user.email,
+            photoURL: user.photoURL,
+            role: 'Employee',
+            status: 'Active',
+            createdAt: new Date().toISOString()
+          };
+          await setDoc(userRef, newUserData);
+          setCurrentUser({ ...user, ...newUserData });
+        } else {
+          setCurrentUser({ ...user, ...userSnap.data() });
+        }
+      } catch (firestoreError) {
+        console.warn("Firestore unreachable during login setup: ", firestoreError);
+        toast.error("Database connection failed. Running in limited mode.");
+        setCurrentUser(user);
       }
       
       toast.success('Successfully logged in!');
@@ -58,14 +68,43 @@ export function AuthProvider({ children }) {
     }
   }
 
-  function logout() {
-    return signOut(auth);
+  async function logout() {
+    setCurrentUser(null);
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error("Logout error", error);
+    }
   }
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setCurrentUser(user);
-      setLoading(false);
+      try {
+        if (user) {
+          const userRef = doc(db, "users", user.uid);
+          // 3-second timeout to prevent infinite loading if Firestore hangs
+          const userSnap = await Promise.race([
+            getDoc(userRef),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore timeout')), 3000))
+          ]);
+
+          if (userSnap.exists()) {
+            setCurrentUser({
+              ...user,
+              ...userSnap.data(),
+            });
+          } else {
+            setCurrentUser(user);
+          }
+        } else {
+          setCurrentUser(null);
+        }
+      } catch (error) {
+        console.error(error);
+        setCurrentUser(user);
+      } finally {
+        setLoading(false);
+      }
     });
 
     return unsubscribe;
@@ -79,7 +118,12 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider value={value}>
-      {!loading && children}
+      {loading ? (
+        <div className="min-h-screen w-full flex flex-col items-center justify-center bg-background">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
+          <p className="text-muted-foreground font-medium animate-pulse">Initializing Application...</p>
+        </div>
+      ) : children}
     </AuthContext.Provider>
   );
 }
