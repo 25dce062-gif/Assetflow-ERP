@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
 import { localStorageDB } from '../services/localStorageDB';
 import { useAuth } from '../context/AuthContext';
+import { logActivity, createNotification } from '../utils/firebaseUtils';
 
 const MOCK_PENDING = [
   { id: 1, asset: 'MacBook Pro M2 (AF-0001)', from: 'Engineering', to: 'Design', requestedBy: 'Sarah Connor', date: 'Today, 09:41 AM' },
@@ -14,6 +15,7 @@ const MOCK_PENDING = [
 export default function Transfers() {
   const { register, handleSubmit, reset, formState: { errors } } = useForm();
   const [pendingTransfers, setPendingTransfers] = useState([]);
+  const [transferHistory, setTransferHistory] = useState([]);
   const [allocatedAssets, setAllocatedAssets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -23,6 +25,7 @@ export default function Transfers() {
     // Fetch Pending Transfers
     const unsubTransfers = localStorageDB.subscribe('transfers', (data) => {
       setPendingTransfers(data.filter(t => t.status === 'Pending'));
+      setTransferHistory(data.filter(t => t.status !== 'Pending').sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
       setLoading(false);
     });
 
@@ -53,6 +56,20 @@ export default function Transfers() {
         createdAt: new Date().toISOString()
       });
 
+      await logActivity(
+        currentUser,
+        'Transfers',
+        'Transfer Requested',
+        `Transfer requested for ${selectedAsset.tag} to ${data.newAssignee}`
+      );
+
+      await createNotification(
+        'Admin',
+        'Transfer Requested',
+        `${currentUser?.displayName || 'Someone'} requested a transfer for ${selectedAsset.tag}`,
+        'warning'
+      );
+
       toast.success('Transfer request submitted for approval.');
       reset();
     } catch (error) {
@@ -65,10 +82,22 @@ export default function Transfers() {
 
   const handleApprove = async (transferId, assetId, newLocation) => {
     try {
-      // Update the transfer request
       await localStorageDB.update('transfers', transferId, { status: 'Approved' });
-      // Update the asset's location/department
       await localStorageDB.update('assets', assetId, { department: newLocation });
+      
+      const asset = await localStorageDB.getById('assets', assetId);
+      await logActivity(
+        currentUser,
+        'Transfers',
+        'Transfer Approved',
+        `Transfer approved to ${newLocation}`
+      );
+      
+      const transfer = await localStorageDB.getById('transfers', transferId);
+      if (transfer?.requestedBy) {
+        // Here we don't have the UID easily, so we just log the approval
+        // If we needed to notify the exact user, we would have stored requesterUid
+      }
       
       toast.success(`Transfer approved.`);
     } catch (error) {
@@ -79,6 +108,12 @@ export default function Transfers() {
   const handleReject = async (transferId) => {
     try {
       await localStorageDB.update('transfers', transferId, { status: 'Rejected' });
+      await logActivity(
+        currentUser,
+        'Transfers',
+        'Transfer Rejected',
+        `Transfer request ${transferId} rejected.`
+      );
       toast.success(`Transfer rejected.`);
     } catch (error) {
       toast.error(error.message || 'Failed to reject transfer.');
@@ -211,6 +246,53 @@ export default function Transfers() {
               )}
             </div>
           </div>
+          {/* Transfer History */}
+          <div className="bg-card border border-border rounded-xl shadow-soft mt-6">
+            <div className="p-4 border-b border-border bg-muted/30">
+              <h2 className="text-base font-semibold text-foreground">Transfer History</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left whitespace-nowrap">
+                <thead className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-border">
+                  <tr>
+                    <th className="px-5 py-3">Asset</th>
+                    <th className="px-5 py-3">Path</th>
+                    <th className="px-5 py-3">Requested By</th>
+                    <th className="px-5 py-3">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {transferHistory.length === 0 ? (
+                    <tr>
+                      <td colSpan="4" className="px-5 py-8 text-center text-muted-foreground">
+                        No transfer history found.
+                      </td>
+                    </tr>
+                  ) : (
+                    transferHistory.map((t) => (
+                      <tr key={t.id} className="hover:bg-muted/30">
+                        <td className="px-5 py-4 font-medium text-foreground">{t.assetName}</td>
+                        <td className="px-5 py-4 text-muted-foreground">
+                          {t.from} &rarr; {t.to}
+                        </td>
+                        <td className="px-5 py-4 text-muted-foreground">{t.requestedBy}</td>
+                        <td className="px-5 py-4">
+                          <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border ${
+                            t.status === 'Approved' ? 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20' :
+                            t.status === 'Rejected' ? 'text-destructive bg-destructive/10 border-destructive/20' :
+                            'text-amber-500 bg-amber-500/10 border-amber-500/20'
+                          }`}>
+                            {t.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
         </div>
 
       </div>

@@ -1,40 +1,20 @@
 import { useState, useEffect } from 'react';
 import { 
   Package, CheckCircle2, ClipboardList, AlertTriangle, 
-  ArrowRightLeft, Wrench, MoreHorizontal, TrendingUp, Calendar, Check, X
+  ArrowRightLeft, Wrench, MoreHorizontal, TrendingUp, Calendar, Check, X, Download, ShieldCheck, Box, RefreshCw
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 import { localStorageDB } from '../services/localStorageDB';
 import { 
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, LineChart, Line, Legend
 } from 'recharts';
 import { motion } from 'framer-motion';
 
-const stats = [
-  { name: 'Total Assets', value: '1,245', icon: Package, color: 'text-primary', bg: 'bg-primary/10', trend: '+12.5%' },
-  { name: 'Available', value: '850', icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-500/10', trend: '+4.2%' },
-  { name: 'Allocated', value: '342', icon: ClipboardList, color: 'text-indigo-500', bg: 'bg-indigo-500/10', trend: '-2.1%' },
-  { name: 'Maintenance', value: '28', icon: Wrench, color: 'text-amber-500', bg: 'bg-amber-500/10', trend: '+1.5%' },
-];
-
-const areaData = [
-  { name: 'Jan', value: 400 },
-  { name: 'Feb', value: 300 },
-  { name: 'Mar', value: 500 },
-  { name: 'Apr', value: 280 },
-  { name: 'May', value: 590 },
-  { name: 'Jun', value: 800 },
-  { name: 'Jul', value: 950 },
-];
-
-const barData = [
-  { name: 'Engineering', active: 400, inactive: 240 },
-  { name: 'Design', active: 300, inactive: 139 },
-  { name: 'Marketing', active: 200, inactive: 980 },
-  { name: 'HR', active: 278, inactive: 390 },
-  { name: 'Sales', active: 189, inactive: 480 },
-];
+const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#64748b'];
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -51,12 +31,131 @@ const itemVariants = {
 
 export default function Dashboard() {
   const [pendingRequests, setPendingRequests] = useState([]);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [activityLogs, setActivityLogs] = useState([]);
+  
+  const [barData, setBarData] = useState([]);
+  const [pieData, setPieData] = useState([]);
+  const [lineData, setLineData] = useState([]);
+
+  const [stats, setStats] = useState({
+    total: 0, available: 0, allocated: 0, maintenance: 0, 
+    upcomingReturns: 0, overdueReturns: 0, runningAudits: 0, pendingTransfers: 0, pendingMaintenance: 0
+  });
+
+  const exportReport = async (type) => {
+    try {
+      const doc = new jsPDF();
+      doc.text(`AssetFlow - ${type} Report`, 14, 15);
+      
+      let tableColumn = [];
+      let tableRows = [];
+
+      if (type === 'Asset' || type === 'Department') {
+        const assets = await localStorageDB.getAll('assets');
+        tableColumn = ["ID", "Name", "Category", "Department", "Status"];
+        const filtered = type === 'Department' 
+          ? [...assets].sort((a, b) => (a.department || '').localeCompare(b.department || ''))
+          : assets;
+          
+        tableRows = filtered.map(asset => [
+          asset.tag || asset.id, 
+          asset.name, 
+          asset.category, 
+          asset.department || 'Unassigned',
+          asset.status
+        ]);
+      } else if (type === 'Maintenance') {
+        const tickets = await localStorageDB.getAll('maintenance');
+        tableColumn = ["Asset", "Issue", "Vendor", "Cost", "Status"];
+        tableRows = tickets.map(t => [
+          t.assetName,
+          t.issue,
+          t.vendor,
+          `$${t.cost || 0}`,
+          t.status
+        ]);
+      }
+      
+      doc.autoTable({
+        head: [tableColumn],
+        body: tableRows,
+        startY: 20,
+      });
+      
+      doc.save(`${type}_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+      toast.success(`${type} Report Exported Successfully`);
+      setShowExportMenu(false);
+    } catch (err) {
+      toast.error(`Failed to export ${type} Report`);
+    }
+  };
 
   useEffect(() => {
-    const unsubscribe = localStorageDB.subscribe('requests', (data) => {
+    const unsubRequests = localStorageDB.subscribe('requests', (data) => {
       setPendingRequests(data.filter(r => r.status === 'Pending'));
     });
-    return unsubscribe;
+    
+    const unsubAssets = localStorageDB.subscribe('assets', (data) => {
+      const total = data.length;
+      const available = data.filter(a => a.status === 'Available').length;
+      const allocated = data.filter(a => a.status === 'Allocated').length;
+      const maintenance = data.filter(a => a.status === 'Maintenance').length;
+      
+      // Calculate Bar Data & Pie Data
+      const depts = {};
+      data.forEach(a => {
+        const dept = a.department || 'Unassigned';
+        if (!depts[dept]) depts[dept] = { name: dept, active: 0, inactive: 0 };
+        if (a.status === 'Allocated') depts[dept].active++;
+        else depts[dept].inactive++;
+      });
+      setBarData(Object.values(depts));
+      
+      const pie = Object.values(depts).map(d => ({ name: d.name, value: d.active + d.inactive })).filter(d => d.value > 0);
+      setPieData(pie);
+
+      setStats(prev => ({ ...prev, total, available, allocated, maintenance }));
+    });
+
+    const unsubMaintenance = localStorageDB.subscribe('maintenance', (data) => {
+      const months = {};
+      data.forEach(m => {
+        if (!m.createdAt) return;
+        const d = new Date(m.createdAt);
+        const month = d.toLocaleString('default', { month: 'short' });
+        months[month] = (months[month] || 0) + 1;
+      });
+      const line = Object.keys(months).map(m => ({ name: m, issues: months[m] }));
+      setLineData(line.length ? line : [{ name: 'No Data', issues: 0 }]);
+      
+      setStats(prev => ({ ...prev, pendingMaintenance: data.filter(m => m.status !== 'Completed').length }));
+    });
+
+    const unsubAllocations = localStorageDB.subscribe('allocations', (data) => {
+      const now = new Date();
+      const upcomingReturns = data.filter(a => a.status === 'Active' && a.returnDate && new Date(a.returnDate) > now).length;
+      const overdueReturns = data.filter(a => a.status === 'Active' && a.returnDate && new Date(a.returnDate) < now).length;
+      setStats(prev => ({ ...prev, upcomingReturns, overdueReturns }));
+    });
+
+    const unsubAudits = localStorageDB.subscribe('audits', (data) => {
+      setStats(prev => ({ ...prev, runningAudits: data.filter(a => a.status === 'Active').length }));
+    });
+
+    const unsubTransfers = localStorageDB.subscribe('transfers', (data) => {
+      setStats(prev => ({ ...prev, pendingTransfers: data.filter(a => a.status === 'Pending').length }));
+    });
+
+    const unsubActivity = localStorageDB.subscribe('activityLogs', (data) => {
+      const sorted = [...data].sort((a, b) => new Date(b.createdAt || b.timestamp) - new Date(a.createdAt || a.timestamp)).slice(0, 15);
+      setActivityLogs(sorted);
+    });
+
+    return () => {
+      unsubRequests(); unsubAssets(); unsubMaintenance(); 
+      unsubAllocations(); unsubAudits(); unsubTransfers(); unsubActivity();
+    };
   }, []);
 
   const handleApprove = async (id) => {
@@ -77,12 +176,27 @@ export default function Dashboard() {
     }
   };
 
+  const statCards = [
+    { name: 'Total Assets', value: stats.total, icon: Package, color: 'text-primary', bg: 'bg-primary/10' },
+    { name: 'Available', value: stats.available, icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
+    { name: 'Allocated', value: stats.allocated, icon: ClipboardList, color: 'text-indigo-500', bg: 'bg-indigo-500/10' },
+    { name: 'In Maintenance', value: stats.maintenance, icon: Wrench, color: 'text-amber-500', bg: 'bg-amber-500/10' },
+  ];
+
+  const secondaryCards = [
+    { name: 'Pending Maint.', value: stats.pendingMaintenance, icon: AlertTriangle, color: 'text-rose-500', bg: 'bg-rose-500/10' },
+    { name: 'Upcoming Returns', value: stats.upcomingReturns, icon: RefreshCw, color: 'text-blue-500', bg: 'bg-blue-500/10' },
+    { name: 'Overdue Returns', value: stats.overdueReturns, icon: AlertTriangle, color: 'text-red-500', bg: 'bg-red-500/10' },
+    { name: 'Running Audits', value: stats.runningAudits, icon: ShieldCheck, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
+    { name: 'Pending Transfers', value: stats.pendingTransfers, icon: ArrowRightLeft, color: 'text-purple-500', bg: 'bg-purple-500/10' },
+  ];
+
   return (
     <motion.div 
       variants={containerVariants}
       initial="hidden"
       animate="show"
-      className="space-y-8"
+      className="space-y-6"
     >
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -92,180 +206,221 @@ export default function Dashboard() {
         <div className="flex space-x-3">
           <button className="flex items-center px-4 py-2 rounded-lg border border-border bg-background text-sm font-medium text-foreground hover:bg-muted transition-colors">
             <Calendar className="w-4 h-4 mr-2 text-muted-foreground" />
-            Last 30 Days
+            Live Data
           </button>
-          <button className="px-4 py-2 rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm">
-            Export Report
-          </button>
+          <div className="relative">
+            <button 
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="flex items-center px-4 py-2 rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Export Report
+            </button>
+            {showExportMenu && (
+              <div className="absolute right-0 mt-2 w-48 bg-card border border-border rounded-lg shadow-lg z-50 overflow-hidden">
+                <button onClick={() => exportReport('Department')} className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted transition-colors">
+                  Department Report
+                </button>
+                <button onClick={() => exportReport('Asset')} className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted transition-colors">
+                  Asset Report
+                </button>
+                <button onClick={() => exportReport('Maintenance')} className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted transition-colors">
+                  Maintenance Report
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       {/* KPI Cards Grid */}
-      <motion.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat) => (
+      <motion.div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {statCards.map((stat, i) => (
           <motion.div 
-            key={stat.name} 
+            key={i} 
             variants={itemVariants}
-            className="bg-card rounded-xl p-5 shadow-soft hover:shadow-soft-hover transition-all duration-300 border border-border flex flex-col justify-between group"
+            className="bg-card rounded-xl p-4 shadow-soft border border-border flex items-center"
           >
-            <div className="flex items-start justify-between mb-4">
-              <div className={`p-3 rounded-lg ${stat.bg} ${stat.color} ring-1 ring-inset ring-border/50`}>
-                <stat.icon className="w-6 h-6 stroke-[2]" aria-hidden="true" />
-              </div>
-              <button className="text-muted-foreground hover:text-foreground p-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <MoreHorizontal className="w-5 h-5" />
-              </button>
+            <div className={`p-3 rounded-lg ${stat.bg} ${stat.color} shrink-0`}>
+              <stat.icon className="w-5 h-5 stroke-[2]" />
             </div>
+            <div className="ml-4">
+              <p className="text-2xl font-bold text-foreground">{stat.value}</p>
+              <p className="text-xs font-medium text-muted-foreground mt-0.5">{stat.name}</p>
+            </div>
+          </motion.div>
+        ))}
+      </motion.div>
+
+      {/* Secondary KPIs */}
+      <motion.div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        {secondaryCards.map((stat, i) => (
+          <motion.div 
+            key={i} 
+            variants={itemVariants}
+            className="bg-card rounded-xl p-3 shadow-soft border border-border flex items-center justify-between"
+          >
             <div>
-              <p className="text-3xl font-bold text-foreground tracking-tight">{stat.value}</p>
-              <p className="text-sm font-medium text-muted-foreground mt-1">{stat.name}</p>
+              <p className="text-xl font-bold text-foreground">{stat.value}</p>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{stat.name}</p>
             </div>
-            <div className="mt-4 flex items-center text-xs">
-              <span className={`font-semibold flex items-center ${stat.trend.startsWith('+') ? 'text-emerald-500' : 'text-red-500'}`}>
-                {stat.trend.startsWith('+') ? <TrendingUp className="w-3.5 h-3.5 mr-1" /> : <TrendingUp className="w-3.5 h-3.5 mr-1 transform rotate-180" />}
-                {stat.trend}
-              </span>
-              <span className="text-muted-foreground ml-2">vs last month</span>
+            <div className={`p-2 rounded-md ${stat.bg} ${stat.color}`}>
+              <stat.icon className="w-4 h-4" />
             </div>
           </motion.div>
         ))}
       </motion.div>
       
       {/* Charts Grid */}
-      <motion.div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        {/* Main Chart */}
+      <motion.div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* Department Allocation Pie Chart */}
         <motion.div 
           variants={itemVariants}
-          className="bg-card rounded-xl shadow-soft border border-border p-6 lg:col-span-3"
+          className="bg-card rounded-xl shadow-soft border border-border p-5 lg:col-span-1"
         >
-          <div className="flex justify-between items-center mb-6">
-            <div>
-              <h3 className="text-base font-semibold text-foreground">Asset Value (YTD)</h3>
-              <p className="text-xs text-muted-foreground mt-1">Acquisition value minus depreciation</p>
-            </div>
+          <div className="mb-4">
+            <h3 className="text-base font-semibold text-foreground">Assets by Department</h3>
+            <p className="text-xs text-muted-foreground mt-1">Distribution across organization</p>
           </div>
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={areaData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
+              <PieChart>
+                <Pie
+                  data={pieData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={80}
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  {pieData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip contentStyle={{ borderRadius: '8px', backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }} />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </motion.div>
+
+        {/* Asset Utilization Bar Chart */}
+        <motion.div 
+          variants={itemVariants}
+          className="bg-card rounded-xl shadow-soft border border-border p-5 lg:col-span-2"
+        >
+          <div className="mb-4">
+            <h3 className="text-base font-semibold text-foreground">Asset Utilization</h3>
+            <p className="text-xs text-muted-foreground mt-1">Active vs Inactive by Department</p>
+          </div>
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={barData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
+                <Tooltip 
+                  cursor={{ fill: 'hsl(var(--muted))' }}
+                  contentStyle={{ borderRadius: '8px', backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                />
+                <Legend />
+                <Bar dataKey="active" stackId="a" fill="hsl(var(--primary))" radius={[0, 0, 4, 4]} barSize={32} name="Allocated" />
+                <Bar dataKey="inactive" stackId="a" fill="hsl(var(--muted))" radius={[4, 4, 0, 0]} barSize={32} name="Available/Other" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </motion.div>
+
+        {/* Maintenance Frequency Line Chart */}
+        <motion.div 
+          variants={itemVariants}
+          className="bg-card rounded-xl shadow-soft border border-border p-5 lg:col-span-1"
+        >
+          <div className="mb-4">
+            <h3 className="text-base font-semibold text-foreground">Maintenance Frequency</h3>
+            <p className="text-xs text-muted-foreground mt-1">Tickets created per month</p>
+          </div>
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={lineData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} dy={10} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
                 <Tooltip 
                   contentStyle={{ borderRadius: '8px', backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
                 />
-                <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorValue)" />
-              </AreaChart>
+                <Line type="monotone" dataKey="issues" stroke="#f59e0b" strokeWidth={3} dot={{ r: 4, fill: '#f59e0b', strokeWidth: 0 }} name="Tickets" />
+              </LineChart>
             </ResponsiveContainer>
           </div>
         </motion.div>
 
-        {/* Secondary Chart */}
+        {/* Activity Logs & Approvals */}
         <motion.div 
           variants={itemVariants}
-          className="bg-card rounded-xl shadow-soft border border-border p-6 lg:col-span-2 flex flex-col"
+          className="bg-card rounded-xl shadow-soft border border-border flex flex-col lg:col-span-2 h-80"
         >
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="text-base font-semibold text-foreground">Allocations</h3>
-          </div>
-          <div className="h-64 w-full flex-1">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={barData} layout="vertical" margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="hsl(var(--border))" />
-                <XAxis type="number" hide />
-                <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} width={80} />
-                <Tooltip 
-                  cursor={{ fill: 'hsl(var(--muted))' }}
-                  contentStyle={{ borderRadius: '8px', backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
-                />
-                <Bar dataKey="active" stackId="a" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} barSize={16} />
-                <Bar dataKey="inactive" stackId="a" fill="hsl(var(--muted))" radius={[0, 4, 4, 0]} barSize={16} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </motion.div>
-      </motion.div>
-
-      {/* Activity & Notifications */}
-      <motion.div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Recent Activity */}
-        <motion.div 
-          variants={itemVariants}
-          className="bg-card rounded-xl shadow-soft border border-border flex flex-col"
-        >
-          <div className="p-5 border-b border-border flex justify-between items-center">
-            <h3 className="text-base font-semibold text-foreground">Activity Log</h3>
-            <button className="text-xs text-primary font-medium hover:underline">View All</button>
-          </div>
-          <div className="p-5">
-            <div className="space-y-5">
-              {[
-                { time: '2h ago', icon: ArrowRightLeft, color: 'text-purple-500 bg-purple-500/10', user: 'Sarah Connor', action: 'transferred', item: 'Sony A7IV Camera' },
-                { time: '4h ago', icon: ClipboardList, color: 'text-blue-500 bg-blue-500/10', user: 'Admin', action: 'allocated', item: 'MacBook Pro M2' },
-                { time: '1d ago', icon: Wrench, color: 'text-amber-500 bg-amber-500/10', user: 'John Doe', action: 'reported damage on', item: 'Ford Transit Van' },
-              ].map((activity, i) => (
-                <div key={i} className="flex items-start">
-                  <div className={`p-2 rounded-lg ${activity.color} shrink-0`}>
-                    <activity.icon className="w-4 h-4" />
-                  </div>
-                  <div className="ml-3 flex-1">
-                    <p className="text-sm text-foreground">
-                      <span className="font-semibold">{activity.user}</span> {activity.action} <span className="font-medium text-primary">{activity.item}</span>
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{activity.time}</p>
-                  </div>
-                </div>
-              ))}
+          <div className="flex border-b border-border bg-muted/30">
+            <div className="px-5 py-3 w-1/2 border-r border-border">
+              <h3 className="text-sm font-semibold text-foreground">Global Activity Log</h3>
+            </div>
+            <div className="px-5 py-3 w-1/2 flex justify-between items-center">
+              <h3 className="text-sm font-semibold text-foreground">Pending Action</h3>
+              <span className="bg-destructive/10 text-destructive text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded">{pendingRequests.length}</span>
             </div>
           </div>
-        </motion.div>
+          <div className="flex flex-1 overflow-hidden">
+            
+            {/* Global Activity */}
+            <div className="w-1/2 overflow-y-auto p-4 border-r border-border">
+              <div className="space-y-4">
+                {activityLogs.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center">No activity yet.</p>
+                ) : (
+                  activityLogs.map((log, i) => (
+                    <div key={i} className="flex flex-col border-b border-border/50 pb-3 last:border-0 last:pb-0">
+                      <div className="flex justify-between items-start">
+                        <p className="text-[13px] font-semibold text-foreground">{log.action}</p>
+                        <span className="text-[10px] text-muted-foreground shrink-0">{log.createdAt ? new Date(log.createdAt).toLocaleDateString() : ''}</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">{log.notes || log.details}</p>
+                      <p className="text-[10px] text-primary mt-1">By {log.user || 'Unknown'}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
 
-        {/* Notifications / Alerts */}
-        <motion.div 
-          variants={itemVariants}
-          className="bg-card rounded-xl shadow-soft border border-border flex flex-col"
-        >
-          <div className="p-5 border-b border-border flex justify-between items-center">
-            <h3 className="text-base font-semibold text-foreground">Action Needed</h3>
-            <span className="bg-destructive/10 text-destructive text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded">{pendingRequests.length} Pending</span>
-          </div>
-          <div className="p-5 space-y-3">
-            {pendingRequests.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">No pending requests.</p>
-            ) : (
-              pendingRequests.map((req) => (
-                <div key={req.id} className="p-4 rounded-lg border border-border bg-background hover:bg-muted transition-colors flex justify-between items-center group">
-                  <div>
-                    <h4 className="font-semibold text-foreground text-sm">{req.requestType || 'Request'}</h4>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {req.employeeName || 'Unknown'} - {req.assetName || req.category || 'N/A'}
-                    </p>
-                  </div>
-                  <div className="flex space-x-2 shrink-0">
-                    <button 
-                      onClick={() => handleReject(req.id)}
-                      className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                      title="Reject"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                    <button 
-                      onClick={() => handleApprove(req.id)}
-                      className="p-1.5 rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition-colors shadow-sm"
-                      title="Approve"
-                    >
-                      <Check className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
+            {/* Pending Requests */}
+            <div className="w-1/2 overflow-y-auto p-4 bg-muted/10">
+              <div className="space-y-3">
+                {pendingRequests.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center">No pending requests.</p>
+                ) : (
+                  pendingRequests.map((req) => (
+                    <div key={req.id} className="p-3 rounded-lg border border-border bg-background shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-start mb-2">
+                        <h4 className="font-semibold text-foreground text-xs">{req.requestType === 'Booking' ? 'Booking' : 'Allocation'}</h4>
+                        <div className="flex space-x-1 shrink-0">
+                          <button onClick={() => handleReject(req.id)} className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => handleApprove(req.id)} className="p-1 rounded hover:bg-emerald-500/10 text-muted-foreground hover:text-emerald-600">
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        <span className="font-medium text-foreground">{req.employeeName}</span> wants <span className="text-primary">{req.category}</span>
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
           </div>
         </motion.div>
 

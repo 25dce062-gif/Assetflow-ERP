@@ -4,17 +4,26 @@ import { RotateCcw, Box, User, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
 import { localStorageDB } from '../services/localStorageDB';
+import { useAuth } from '../context/AuthContext';
+import { logActivity, createNotification } from '../utils/firebaseUtils';
 
 export default function Returns() {
   const { register, handleSubmit, reset, formState: { errors } } = useForm();
   const [allocatedAssets, setAllocatedAssets] = useState([]);
+  const [returnHistory, setReturnHistory] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const { currentUser } = useAuth();
   
   useEffect(() => {
     const unsubAssets = localStorageDB.subscribe('assets', (data) => {
       setAllocatedAssets(data.filter(a => a.status === 'Allocated'));
     });
-    return () => unsubAssets();
+    const unsubReturns = localStorageDB.subscribe('returns', (data) => {
+      setReturnHistory([...data].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+      setLoading(false);
+    });
+    return () => { unsubAssets(); unsubReturns(); };
   }, []);
 
   const onSubmit = async (data) => {
@@ -40,7 +49,28 @@ export default function Returns() {
         department: 'Warehouse'
       });
 
-      // 3. Mark active allocation as returned (simplification: we skip querying allocations here for brevity, but in a real app we'd mark it inactive)
+      // 3. Mark active allocation as returned
+      const allocations = await localStorageDB.getWhere('allocations', 'assetId', '==', data.assetId);
+      const activeAllocation = allocations.find(a => a.status === 'Active');
+      if (activeAllocation) {
+        await localStorageDB.update('allocations', activeAllocation.id, { status: 'Returned' });
+      }
+
+      // 4. Log Activity
+      await logActivity(
+        currentUser,
+        'Returns',
+        'Asset Returned',
+        `Returned by ${data.returnedBy}. Condition: ${data.condition}. ${data.notes || ''}`
+      );
+
+      // 5. Create Notification
+      await createNotification(
+        'Admin',
+        'Asset Returned',
+        `Asset ${selectedAsset.tag} has been returned by ${data.returnedBy}`,
+        'info'
+      );
 
       toast.success(`Return logged. Asset is now ${newStatus}.`);
       reset();
@@ -161,6 +191,57 @@ export default function Returns() {
             </button>
           </div>
         </form>
+      </div>
+      <div className="bg-card border border-border rounded-xl shadow-soft overflow-hidden mt-6">
+        <div className="p-4 border-b border-border bg-muted/30">
+          <h2 className="text-base font-semibold text-foreground flex items-center">
+            Return History
+          </h2>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left whitespace-nowrap">
+            <thead className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-border">
+              <tr>
+                <th className="px-5 py-3">Asset</th>
+                <th className="px-5 py-3">Returned By</th>
+                <th className="px-5 py-3">Date</th>
+                <th className="px-5 py-3">Condition</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {loading ? (
+                <tr>
+                  <td colSpan="4" className="px-5 py-8 text-center text-muted-foreground">Loading...</td>
+                </tr>
+              ) : returnHistory.length === 0 ? (
+                <tr>
+                  <td colSpan="4" className="px-5 py-8 text-center text-muted-foreground">
+                    No return history found.
+                  </td>
+                </tr>
+              ) : (
+                returnHistory.map((ret) => (
+                  <tr key={ret.id} className="hover:bg-muted/30">
+                    <td className="px-5 py-4 font-medium text-foreground">{ret.assetName}</td>
+                    <td className="px-5 py-4 text-muted-foreground">{ret.returnedBy}</td>
+                    <td className="px-5 py-4 text-muted-foreground">
+                      {ret.returnDate ? new Date(ret.returnDate).toLocaleDateString() : 'Unknown'}
+                    </td>
+                    <td className="px-5 py-4">
+                      <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border ${
+                        ret.condition === 'Good' || ret.condition === 'Fair' 
+                          ? 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20' 
+                          : 'text-amber-500 bg-amber-500/10 border-amber-500/20'
+                      }`}>
+                        {ret.condition}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </motion.div>
   );

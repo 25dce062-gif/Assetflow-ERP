@@ -20,14 +20,14 @@ function cn(...inputs) {
 }
 
 const navItems = [
-  { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
-  { name: 'Directory', href: '/admin/assets', icon: Package },
-  { name: 'Allocations', href: '/admin/allocations', icon: ClipboardList },
-  { name: 'Transfers', href: '/admin/transfers', icon: ArrowRightLeft },
-  { name: 'Returns', href: '/admin/returns', icon: RotateCcw },
-  { name: 'Maintenance', href: '/admin/maintenance', icon: Wrench },
-  { name: 'Employees', href: '/admin/employees', icon: Users },
-  { name: 'Setup', href: '/admin/setup', icon: Settings },
+  { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, roles: ['Admin', 'Asset Manager', 'Department Head'] },
+  { name: 'Directory', href: '/admin/assets', icon: Package, roles: ['Admin', 'Asset Manager', 'Department Head'] },
+  { name: 'Allocations', href: '/admin/allocations', icon: ClipboardList, roles: ['Admin', 'Asset Manager', 'Department Head'] },
+  { name: 'Transfers', href: '/admin/transfers', icon: ArrowRightLeft, roles: ['Admin', 'Asset Manager'] },
+  { name: 'Returns', href: '/admin/returns', icon: RotateCcw, roles: ['Admin', 'Asset Manager'] },
+  { name: 'Maintenance', href: '/admin/maintenance', icon: Wrench, roles: ['Admin', 'Asset Manager'] },
+  { name: 'Employees', href: '/admin/employees', icon: Users, roles: ['Admin'] },
+  { name: 'Setup', href: '/admin/setup', icon: Settings, roles: ['Admin'] },
 ];
 
 export default function Sidebar({ isCollapsed }) {
@@ -58,7 +58,7 @@ export default function Sidebar({ isCollapsed }) {
       {/* Navigation */}
       <div className="flex-1 py-6 px-3 overflow-y-auto">
         <nav className="space-y-1">
-          {navItems.map((item) => (
+          {navItems.filter(item => item.roles.includes(currentUser?.role)).map((item) => (
             <NavLink
               key={item.name}
               to={item.href}
@@ -101,7 +101,7 @@ export default function Sidebar({ isCollapsed }) {
           {!isCollapsed && (
             <div className="ml-3 overflow-hidden">
               <p className="text-sm font-medium text-foreground truncate">{currentUser?.displayName || 'User'}</p>
-              <p className="text-xs text-primary font-bold uppercase tracking-wider truncate">Admin</p>
+              <p className="text-xs text-primary font-bold uppercase tracking-wider truncate">{currentUser?.role || 'Admin'}</p>
             </div>
           )}
         </div>

@@ -26,7 +26,11 @@ function AdminRoute({ children }) {
   const location = useLocation();
 
   if (!currentUser) return <Navigate to="/login" state={{ from: location }} replace />;
-  if (currentUser.role !== 'Admin') return <Navigate to="/access-denied" replace />;
+  
+  const allowedAdminRoles = ['Admin', 'Asset Manager', 'Department Head'];
+  if (!allowedAdminRoles.includes(currentUser.role)) {
+    return <Navigate to="/access-denied" replace />;
+  }
 
   return children;
 }

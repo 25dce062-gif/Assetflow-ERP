@@ -5,11 +5,14 @@ import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
 import { localStorageDB } from '../services/localStorageDB';
 import { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { logActivity } from '../utils/firebaseUtils';
 
 export default function AssetRegistration() {
   const { register, handleSubmit, formState: { errors }, reset } = useForm();
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { currentUser } = useAuth();
 
   const onSubmit = async (data) => {
     setIsSubmitting(true);
@@ -35,8 +38,14 @@ export default function AssetRegistration() {
         // Generate a random tag for now (in production, use a sequential generator)
         tag: `AF-${Math.floor(1000 + Math.random() * 9000)}`
       };
+      
+      // Store QR data specifically
+      assetData.qrData = assetData.tag;
 
       await localStorageDB.add('assets', assetData);
+
+      // Log Asset Created Activity using global helper
+      await logActivity(currentUser, 'Asset Registration', 'Asset Created', `Asset ${assetData.name} (${assetData.tag}) registered.`);
       
       toast.success('Asset registered successfully!');
       reset();

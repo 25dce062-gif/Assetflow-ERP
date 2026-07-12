@@ -4,12 +4,15 @@ import { Send, Box } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { localStorageDB } from '../../services/localStorageDB';
+import { logActivity, createNotification } from '../../utils/firebaseUtils';
 import toast from 'react-hot-toast';
 
 export default function RequestAsset() {
-  const { register, handleSubmit, reset, formState: { errors } } = useForm();
+  const { register, handleSubmit, reset, formState: { errors }, watch } = useForm();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { currentUser } = useAuth();
+  
+  const requestType = watch('requestType', 'Asset');
 
   const onSubmit = async (data) => {
     setIsSubmitting(true);
@@ -17,13 +20,29 @@ export default function RequestAsset() {
       await localStorageDB.add('requests', {
         employeeId: currentUser.uid,
         employeeName: currentUser.name || currentUser.displayName || 'Unknown',
-        requestType: 'Asset',
+        requestType: data.requestType, // 'Asset' or 'Booking'
         department: currentUser.department || 'Unknown',
         category: data.category,
         reason: data.reason,
+        startDate: data.startDate || null,
+        endDate: data.endDate || null,
         status: 'Pending',
         createdAt: new Date().toISOString()
       });
+
+      await logActivity(
+        currentUser,
+        'Asset Request',
+        'Request Submitted',
+        `Requested ${data.category} for ${data.requestType === 'Booking' ? 'Booking' : 'Allocation'}`
+      );
+
+      await createNotification(
+        'Admin',
+        'New Request',
+        `${currentUser?.name || 'Someone'} submitted a new request for ${data.category}`,
+        'info'
+      );
 
       toast.success('Asset request submitted successfully!');
       reset();
@@ -68,6 +87,41 @@ export default function RequestAsset() {
             </select>
             {errors.category && <span className="text-destructive text-xs mt-1 block">Category is required</span>}
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1.5">Request Type *</label>
+            <select
+              {...register("requestType", { required: true })}
+              className="w-full px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all shadow-sm"
+              defaultValue="Asset"
+            >
+              <option value="Asset">Permanent Allocation</option>
+              <option value="Booking">Temporary Booking (Shared Resource)</option>
+            </select>
+          </div>
+
+          {requestType === 'Booking' && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Start Date *</label>
+                <input
+                  type="date"
+                  {...register("startDate", { required: requestType === 'Booking' })}
+                  className="w-full px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all shadow-sm"
+                />
+                {errors.startDate && <span className="text-destructive text-xs mt-1 block">Start Date is required</span>}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">End Date *</label>
+                <input
+                  type="date"
+                  {...register("endDate", { required: requestType === 'Booking' })}
+                  className="w-full px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all shadow-sm"
+                />
+                {errors.endDate && <span className="text-destructive text-xs mt-1 block">End Date is required</span>}
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-foreground mb-1.5">Business Justification / Reason *</label>

@@ -4,17 +4,21 @@ import { ClipboardList, Search, CheckCircle2, User, Building, AlertCircle } from
 import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
 import { localStorageDB } from '../services/localStorageDB';
+import { useAuth } from '../context/AuthContext';
+import { logActivity, createNotification } from '../utils/firebaseUtils';
 
 export default function Allocations() {
   const { register, handleSubmit, reset, formState: { errors } } = useForm();
   const [searchTerm, setSearchTerm] = useState('');
   const [allocations, setAllocations] = useState([]);
+  const [bookings, setBookings] = useState([]);
   const [availableAssets, setAvailableAssets] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('Allocations');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { currentUser } = useAuth();
 
   useEffect(() => {
-    // Fetch Active Allocations
     const unsubAllocations = localStorageDB.subscribe('allocations', (data) => {
       const sortedData = [...data].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       setAllocations(sortedData);
@@ -26,9 +30,15 @@ export default function Allocations() {
       setAvailableAssets(data.filter(a => a.status === 'Available'));
     });
 
+    const unsubRequests = localStorageDB.subscribe('requests', (data) => {
+      const approvedBookings = data.filter(r => r.requestType === 'Booking' && r.status === 'Approved');
+      setBookings(approvedBookings);
+    });
+
     return () => {
       unsubAllocations();
       unsubAssets();
+      unsubRequests();
     };
   }, []);
 
@@ -37,6 +47,13 @@ export default function Allocations() {
     try {
       const selectedAsset = availableAssets.find(a => a.id === data.assetId);
       
+      // Duplicate Validation
+      const allAllocations = await localStorageDB.getAll('allocations');
+      const isDuplicate = allAllocations.some(a => a.assetId === data.assetId && a.status === 'Active');
+      if (isDuplicate) {
+        throw new Error("This asset is already actively allocated to someone.");
+      }
+
       // 1. Create Allocation Record
       await localStorageDB.add('allocations', {
         assetId: data.assetId,
@@ -53,6 +70,23 @@ export default function Allocations() {
         status: 'Allocated',
         department: data.department || 'Unassigned'
       });
+
+      // 3. Log Activity
+      await logActivity(
+        currentUser, 
+        'Allocations', 
+        'Asset Allocated', 
+        `Allocated to ${data.assignee} (${data.department || 'Unassigned'})`
+      );
+
+      // 4. Create Notification
+      // Since assignee is a name, we'll just broadcast this as info for admins, or if we had a uid we'd target it.
+      await createNotification(
+        'Admin', 
+        'Asset Allocated', 
+        `Asset ${selectedAsset.tag} allocated to ${data.assignee}`,
+        'info'
+      );
 
       toast.success('Asset successfully allocated!');
       reset();
@@ -159,12 +193,34 @@ export default function Allocations() {
           </div>
         </div>
 
-        {/* Current Allocations List */}
+        {/* Allocation/Booking History */}
         <div className="lg:col-span-2 space-y-4">
           <div className="bg-card border border-border rounded-xl shadow-soft">
-            <div className="p-4 border-b border-border flex justify-between items-center bg-muted/30">
-              <h2 className="text-base font-semibold text-foreground">Active Allocations</h2>
-              <div className="relative w-64">
+            <div className="p-4 border-b border-border flex flex-col sm:flex-row justify-between sm:items-center bg-muted/30 gap-4">
+              <div className="flex bg-muted p-1 rounded-lg border border-border">
+                <button
+                  onClick={() => setActiveTab('Allocations')}
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                    activeTab === 'Allocations' 
+                      ? 'bg-primary text-primary-foreground shadow-sm' 
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Allocations
+                </button>
+                <button
+                  onClick={() => setActiveTab('Bookings')}
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                    activeTab === 'Bookings' 
+                      ? 'bg-primary text-primary-foreground shadow-sm' 
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Bookings Calendar/List
+                </button>
+              </div>
+              
+              <div className="relative w-full sm:w-64">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <Search className="h-4 w-4 text-muted-foreground" />
                 </div>
@@ -173,58 +229,102 @@ export default function Allocations() {
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="block w-full pl-9 pr-3 py-1.5 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                  placeholder="Search allocations..."
+                  placeholder={`Search ${activeTab.toLowerCase()}...`}
                 />
               </div>
             </div>
             
             <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/50 border-b border-border">
-                  <tr>
-                    <th className="px-5 py-3">Asset</th>
-                    <th className="px-5 py-3">Assignee</th>
-                    <th className="px-5 py-3">Department</th>
-                    <th className="px-5 py-3">Date</th>
-                    <th className="px-5 py-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {loading ? (
+              {activeTab === 'Allocations' ? (
+                <table className="w-full text-sm text-left">
+                  <thead className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/50 border-b border-border">
                     <tr>
-                      <td colSpan="5" className="px-5 py-8 text-center text-muted-foreground">
-                        <div className="flex justify-center mb-2">
-                          <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
-                        </div>
-                        Loading allocations...
-                      </td>
+                      <th className="px-5 py-3">Asset</th>
+                      <th className="px-5 py-3">Assignee</th>
+                      <th className="px-5 py-3">Department</th>
+                      <th className="px-5 py-3">Date</th>
+                      <th className="px-5 py-3">Status</th>
                     </tr>
-                  ) : allocations.length === 0 ? (
-                    <tr>
-                      <td colSpan="5" className="px-5 py-8 text-center text-muted-foreground">
-                        No active allocations found.
-                      </td>
-                    </tr>
-                  ) : (
-                    allocations.map((alloc) => (
-                      <tr key={alloc.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="px-5 py-4 font-medium text-foreground">{alloc.assetName}</td>
-                        <td className="px-5 py-4 text-foreground">{alloc.assignee}</td>
-                        <td className="px-5 py-4 text-muted-foreground">{alloc.department}</td>
-                        <td className="px-5 py-4 text-muted-foreground">
-                          {alloc.createdAt ? new Date(alloc.createdAt).toLocaleDateString() : 'Just now'}
-                        </td>
-                        <td className="px-5 py-4">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider border text-emerald-500 bg-emerald-500/10 border-emerald-500/20">
-                            <CheckCircle2 className="w-3 h-3 mr-1" />
-                            {alloc.status}
-                          </span>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {loading ? (
+                      <tr>
+                        <td colSpan="5" className="px-5 py-8 text-center text-muted-foreground">
+                          <div className="flex justify-center mb-2">
+                            <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                          </div>
+                          Loading allocations...
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : allocations.length === 0 ? (
+                      <tr>
+                        <td colSpan="5" className="px-5 py-8 text-center text-muted-foreground">
+                          No active allocations found.
+                        </td>
+                      </tr>
+                    ) : (
+                      allocations.map((alloc) => (
+                        <tr key={alloc.id} className="hover:bg-muted/30 transition-colors">
+                          <td className="px-5 py-4 font-medium text-foreground">{alloc.assetName}</td>
+                          <td className="px-5 py-4 text-foreground">{alloc.assignee}</td>
+                          <td className="px-5 py-4 text-muted-foreground">{alloc.department}</td>
+                          <td className="px-5 py-4 text-muted-foreground">
+                            {alloc.createdAt ? new Date(alloc.createdAt).toLocaleDateString() : 'Just now'}
+                          </td>
+                          <td className="px-5 py-4">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider border ${
+                              alloc.status === 'Active' ? 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20' :
+                              alloc.status === 'Returned' ? 'text-blue-500 bg-blue-500/10 border-blue-500/20' :
+                              'text-amber-500 bg-amber-500/10 border-amber-500/20'
+                            }`}>
+                              <CheckCircle2 className="w-3 h-3 mr-1" />
+                              {alloc.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="p-0">
+                  <table className="w-full text-sm text-left">
+                    <thead className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/50 border-b border-border">
+                      <tr>
+                        <th className="px-5 py-3">Resource / Category</th>
+                        <th className="px-5 py-3">Employee</th>
+                        <th className="px-5 py-3">Start Date</th>
+                        <th className="px-5 py-3">End Date</th>
+                        <th className="px-5 py-3">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {bookings.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" className="px-5 py-8 text-center text-muted-foreground">
+                            No approved bookings found.
+                          </td>
+                        </tr>
+                      ) : (
+                        bookings.map((booking) => (
+                          <tr key={booking.id} className="hover:bg-muted/30 transition-colors">
+                            <td className="px-5 py-4 font-medium text-foreground">{booking.category || 'N/A'}</td>
+                            <td className="px-5 py-4 text-foreground">{booking.employeeName}</td>
+                            <td className="px-5 py-4 text-muted-foreground">{booking.startDate}</td>
+                            <td className="px-5 py-4 text-muted-foreground">{booking.endDate}</td>
+                            <td className="px-5 py-4">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider border text-emerald-500 bg-emerald-500/10 border-emerald-500/20">
+                                <CheckCircle2 className="w-3 h-3 mr-1" />
+                                Confirmed
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         </div>

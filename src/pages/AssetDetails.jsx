@@ -2,15 +2,19 @@ import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { 
   ArrowLeft, Edit, Tag, Package, Building, MapPin, Calendar, 
-  DollarSign, Activity, FileText, Image as ImageIcon, AlertCircle
+  DollarSign, Activity, FileText, Image as ImageIcon, AlertCircle, QrCode, Download, Printer
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { QRCodeSVG } from 'qrcode.react';
+import Barcode from 'react-barcode';
 import { localStorageDB } from '../services/localStorageDB';
 
 export default function AssetDetails() {
   const { id } = useParams(); // 'id' corresponds to the tag based on the routing setup
   const [asset, setAsset] = useState(null);
+  const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('Overview');
 
   useEffect(() => {
     const fetchAsset = async () => {
@@ -29,7 +33,60 @@ export default function AssetDetails() {
     };
 
     if (id) fetchAsset();
+    
+    // Subscribe to activity logs for this asset
+    const unsubscribe = localStorageDB.subscribe('activityLogs', (data) => {
+      const assetLogs = data
+        .filter(log => log.assetTag === id || log.assetId === id)
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      setLogs(assetLogs);
+    });
+
+    return () => unsubscribe();
   }, [id]);
+
+  const handleDownloadQR = () => {
+    const svg = document.getElementById("qr-container").querySelector("svg");
+    const svgData = new XMLSerializer().serializeToString(svg);
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    const img = new Image();
+    img.onload = () => {
+      canvas.width = img.width + 40;
+      canvas.height = img.height + 40;
+      ctx.fillStyle = "white";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 20, 20);
+      const pngFile = canvas.toDataURL("image/png");
+      const downloadLink = document.createElement("a");
+      downloadLink.download = `${asset.tag}_QR.png`;
+      downloadLink.href = pngFile;
+      downloadLink.click();
+    };
+    img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgData)));
+  };
+
+  const handlePrintQR = () => {
+    const svg = document.getElementById("qr-container").innerHTML;
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+      <html>
+        <head><title>Print QR - ${asset.tag}</title></head>
+        <body style="display:flex; justify-content:center; align-items:center; height:100vh; margin:0;">
+          <div style="text-align:center;">
+            ${svg}
+            <p style="font-family:monospace; margin-top:20px; font-size: 24px;">${asset.tag}</p>
+          </div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 250);
+  };
 
   if (loading) {
     return (
@@ -90,12 +147,36 @@ export default function AssetDetails() {
         
         {/* Main Details */}
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-card border border-border rounded-xl shadow-soft">
-            <div className="p-5 border-b border-border bg-muted/30">
-              <h2 className="text-base font-semibold text-foreground flex items-center">
-                <Package className="w-4 h-4 mr-2 text-primary" />
-                Asset Information
-              </h2>
+          <div className="bg-card border border-border rounded-xl shadow-soft p-1.5 flex space-x-1.5">
+            <button
+              onClick={() => setActiveTab('Overview')}
+              className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all duration-200 ${
+                activeTab === 'Overview' 
+                  ? 'bg-primary text-primary-foreground shadow-md' 
+                  : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground'
+              }`}
+            >
+              Overview
+            </button>
+            <button
+              onClick={() => setActiveTab('Timeline')}
+              className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all duration-200 ${
+                activeTab === 'Timeline' 
+                  ? 'bg-primary text-primary-foreground shadow-md' 
+                  : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground'
+              }`}
+            >
+              Asset Timeline
+            </button>
+          </div>
+
+          {activeTab === 'Overview' ? (
+            <div className="bg-card border border-border rounded-xl shadow-soft">
+              <div className="p-5 border-b border-border bg-muted/30">
+                <h2 className="text-base font-semibold text-foreground flex items-center">
+                  <Package className="w-4 h-4 mr-2 text-primary" />
+                  Asset Information
+                </h2>
             </div>
             <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-y-6 gap-x-8">
               <div>
@@ -141,7 +222,7 @@ export default function AssetDetails() {
               </div>
             </div>
           </div>
-
+          ) : (
           <div className="bg-card border border-border rounded-xl shadow-soft">
             <div className="p-5 border-b border-border bg-muted/30 flex justify-between items-center">
               <h2 className="text-base font-semibold text-foreground flex items-center">
@@ -151,22 +232,53 @@ export default function AssetDetails() {
             </div>
             <div className="p-6">
               <div className="relative border-l-2 border-border ml-3 space-y-8">
-                
-                <div className="relative pl-6">
-                  <div className="absolute w-3 h-3 bg-blue-500 rounded-full -left-[7px] top-1.5 ring-4 ring-card"></div>
-                  <p className="text-sm text-foreground"><span className="font-semibold">Allocated</span> to Sarah Connor</p>
-                  <p className="text-xs text-muted-foreground mt-1">Oct 15, 2023 - 09:41 AM</p>
-                </div>
-
-                <div className="relative pl-6">
-                  <div className="absolute w-3 h-3 bg-muted-foreground rounded-full -left-[7px] top-1.5 ring-4 ring-card"></div>
-                  <p className="text-sm text-foreground"><span className="font-semibold">Registered</span> by System Admin</p>
-                  <p className="text-xs text-muted-foreground mt-1">Jan 15, 2023 - 11:20 AM</p>
-                </div>
-
+                {logs.length === 0 ? (
+                  <p className="text-sm text-muted-foreground ml-3">No activity history for this asset.</p>
+                ) : (
+                  logs.map((log) => (
+                    <div key={log.id} className="relative pl-6">
+                      <div className={`absolute w-3 h-3 rounded-full -left-[7px] top-1.5 ring-4 ring-card ${
+                        log.action.includes('Allocated') ? 'bg-blue-500' : 
+                        log.action.includes('Returned') ? 'bg-emerald-500' :
+                        log.action.includes('Transferred') ? 'bg-purple-500' :
+                        log.action.includes('Maintenance') ? 'bg-amber-500' :
+                        log.action.includes('Created') ? 'bg-indigo-500' :
+                        'bg-muted-foreground'
+                      }`}></div>
+                      <div className="bg-muted/20 border border-border rounded-xl p-4 shadow-sm hover:bg-muted/40 transition-colors">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-3 border-b border-border pb-3">
+                          <p className="text-sm font-bold text-foreground">
+                            {log.action}
+                          </p>
+                          <p className="text-[11px] font-semibold text-muted-foreground mt-1 sm:mt-0 bg-muted px-2 py-1 rounded border border-border flex items-center uppercase tracking-wider">
+                            <Calendar className="w-3 h-3 mr-1" />
+                            {new Date(log.createdAt).toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="flex flex-col space-y-2">
+                          <div className="flex items-center">
+                            <span className="text-xs font-medium text-muted-foreground w-16 uppercase tracking-wider">User:</span>
+                            <span className="text-sm font-medium text-foreground">{log.user || 'System'}</span>
+                          </div>
+                          <div className="flex items-center">
+                            <span className="text-xs font-medium text-muted-foreground w-16 uppercase tracking-wider">Role:</span>
+                            <span className="text-xs font-semibold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded uppercase tracking-wider">{log.role || 'System'}</span>
+                          </div>
+                          {log.notes && (
+                            <div className="mt-3 bg-background border border-border p-3 rounded-lg flex items-start">
+                              <FileText className="w-4 h-4 text-muted-foreground mr-2 shrink-0 mt-0.5" />
+                              <p className="text-sm text-foreground italic">{log.notes}</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
+          )}
         </div>
 
         {/* Sidebar Widgets */}
@@ -185,6 +297,47 @@ export default function AssetDetails() {
               </div>
             </div>
           )}
+
+          <div className="bg-card border border-border rounded-xl shadow-soft">
+            <div className="p-4 border-b border-border flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">Asset QR Code</h3>
+              <QrCode className="w-4 h-4 text-muted-foreground" />
+            </div>
+            <div className="p-6 flex flex-col items-center justify-center bg-white rounded-b-xl space-y-6">
+              <div className="flex flex-col items-center">
+                <div id="qr-container">
+                  <QRCodeSVG 
+                    value={asset.qrData || asset.tag || asset.assetId || 'Unknown Asset'} 
+                    size={150} 
+                    level="H" 
+                    includeMargin={true} 
+                  />
+                </div>
+                <p className="text-xs text-zinc-500 font-mono mt-3">QR Code</p>
+                <div className="flex space-x-2 mt-4">
+                  <button onClick={handleDownloadQR} className="p-2 bg-muted hover:bg-muted/80 rounded-md text-foreground transition-colors" title="Download QR">
+                    <Download className="w-4 h-4" />
+                  </button>
+                  <button onClick={handlePrintQR} className="p-2 bg-muted hover:bg-muted/80 rounded-md text-foreground transition-colors" title="Print QR">
+                    <Printer className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="w-full h-px bg-border my-2"></div>
+              <div className="flex flex-col items-center overflow-hidden w-full">
+                <Barcode 
+                  value={asset.tag || asset.assetId || 'Unknown'} 
+                  width={1.5} 
+                  height={50} 
+                  fontSize={14} 
+                  background="#ffffff" 
+                  lineColor="#000000" 
+                  margin={10} 
+                />
+                <p className="text-xs text-zinc-500 font-mono mt-1">Barcode</p>
+              </div>
+            </div>
+          </div>
 
           <div className="bg-card border border-border rounded-xl shadow-soft">
             <div className="p-4 border-b border-border">
